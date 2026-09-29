@@ -6355,7 +6355,11 @@
 
 .blockspace-workspace .bs-find-replace {
   position: absolute;
-  z-index: 60;
+  /* Keyed to Obsidian's own layering variable, like the other floating panels
+     (.bs-slash-menu, .bs-format-toolbar, .bs-block-selection-toolbar,
+     .bs-drag-preview) — a bare literal here could put this panel behind or
+     in front of them depending on --layer-menu's actual value. */
+  z-index: calc(var(--layer-menu) + 15);
   top: 12px;
   right: 16px;
   display: grid;

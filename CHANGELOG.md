@@ -7,6 +7,39 @@ version field was also out of sync with the version documented in the README and
 embedded in `main.js` for several releases. This file starts tracking from the
 point that was fixed.
 
+## 0.17.3
+
+- **Fix (data loss):** two panes with the same page open could both pass
+  `savePage`'s revision check against the same stale disk read and silently
+  clobber each other's edit, with no conflict reported. Concurrent saves for
+  the same page id are now serialized so the losing save correctly sees the
+  bumped revision and gets a conflict (with a recovery copy of its edits),
+  instead of being silently overwritten.
+- **Fix (data loss risk):** Obsidian does not wait for `onunload()` to finish
+  on plugin disable/reload/app quit, so an edit still waiting out the
+  autosave debounce at that moment could be lost with nothing journaled for
+  it. Views now flush immediately when their window loses focus or is
+  hidden, sharply narrowing that window.
+- **Fix:** typing while the Find & Replace panel was open didn't refresh its
+  match list, so match counts and highlights went stale and "Replace" could
+  silently do nothing until you touched the find bar's own inputs.
+- **Fix:** deleting a page that was also open in another pane left that pane
+  to discover it only via an opaque "page file missing" conflict on its next
+  autosave. Other panes are now switched away immediately, with any unsaved
+  edits in them preserved as a recovery copy first.
+- **Fix:** if one file in a multi-file attachment upload/drop failed, the
+  already-written files from the same batch were silently orphaned in the
+  vault (written, but never referenced by any block). Successful files are
+  now inserted regardless of a later failure in the same batch.
+- **Fix:** a page file that failed to parse or failed validation during
+  startup's index rebuild used to disappear from the workspace with no
+  signal beyond a console log. A Notice now reports how many pages were
+  skipped and points at "打开诊断与恢复".
+- **Fix:** the Find & Replace panel used a hardcoded `z-index: 60` instead of
+  Obsidian's `--layer-menu` variable used by the rest of the plugin's
+  floating panels, so it could render behind/in front of the slash menu,
+  format toolbar, or drag preview depending on that variable's actual value.
+
 ## 0.17.2
 
 - **Fix:** the published `main.js` and `styles.css` had been accidentally

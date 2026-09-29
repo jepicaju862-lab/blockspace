@@ -1,6 +1,6 @@
 {
   "name": "blockspace-workspace",
-  "version": "0.17.2",
+  "version": "0.17.3",
   "description": "A local-first, Notion-style structured block workspace that lives inside Obsidian.",
   "main": "main.js",
   "scripts": {

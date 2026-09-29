@@ -805,6 +805,7 @@ class BlockspaceStore {
     this.initialized = false;
     this.initPromise = null;
     this.writeQueues = new Map();
+    this.pageSaveLocks = new Map();
     this.folderLocks = new Map();
     this.lastSnapshotAt = new Map();
     this.lastJournalRecovery = { recovered: 0, conflicts: 0, discarded: 0 };
@@ -861,6 +862,23 @@ class BlockspaceStore {
         if (this.writeQueues.get(path) === next) this.writeQueues.delete(path);
       });
     this.writeQueues.set(path, next);
+    return next;
+  }
+
+  // Serializes the whole read-check-write critical section for a given key
+  // (unlike enqueue/writeQueues, which only serialize individual file writes).
+  // savePage uses this so two concurrent callers for the same page id — e.g.
+  // the same page open in two panes — cannot both pass the revision check
+  // against the same stale disk read and silently clobber each other.
+  runSerialized(key, task) {
+    const previous = this.pageSaveLocks.get(key) || Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(task)
+      .finally(() => {
+        if (this.pageSaveLocks.get(key) === next) this.pageSaveLocks.delete(key);
+      });
+    this.pageSaveLocks.set(key, next);
     return next;
   }
 
@@ -982,6 +1000,9 @@ class BlockspaceStore {
         // every startup so a missing/corrupt workspace.json never makes valid
         // pages appear to be lost.
         await this.rebuildWorkspaceIndex();
+        if (this.lastIndexRebuildSkipped && this.lastIndexRebuildSkipped.length) {
+          new Notice(`Blockspace：启动时跳过了 ${this.lastIndexRebuildSkipped.length} 个无法读取的页面文件，请打开"诊断与恢复"查看详情`);
+        }
         if (this.workspace.pages.length === 0) {
           const page = Core.createDefaultPage();
           await this.savePage(page, { saveIndex: false, createSnapshot: false });
@@ -1395,6 +1416,18 @@ class BlockspaceStore {
     const saveIndex = opts.saveIndex !== false;
     const createSnapshot = opts.createSnapshot !== false;
     const expectedRevision = Number.isFinite(opts.expectedRevision) ? Number(opts.expectedRevision) : null;
+    // The disk-revision check below and the write that follows it must happen
+    // as one unit per page id: if two callers (e.g. the same page open in two
+    // panes) both read the same stale revision before either has written,
+    // both checks would pass and the second write would silently clobber the
+    // first. Serializing here forces the second caller's read to happen after
+    // the first caller's write, so it correctly sees the bumped revision and
+    // throws ConflictError instead.
+    return this.runSerialized(page.id, () => this.savePageLocked(page, { saveIndex, createSnapshot, expectedRevision, forceSnapshot: opts.forceSnapshot }));
+  }
+
+  async savePageLocked(page, opts) {
+    const { saveIndex, createSnapshot, expectedRevision } = opts;
     let normalized = Core.normalizePage(page);
     if (expectedRevision !== null && normalized.revision <= expectedRevision) {
       normalized.revision = expectedRevision + 1;
@@ -1543,17 +1576,29 @@ class BlockspaceStore {
     await this.ensureFolder(this.pagesFolder);
     const files = (await this.listFiles(this.pagesFolder)).filter((path) => path.endsWith('.json'));
     const pages = [];
+    // A page file that fails to parse or fails validation is dropped from the
+    // index here with no signal beyond a console.error (or, for a validation
+    // failure, no signal at all) — the page just silently disappears from the
+    // workspace. Track what was skipped so callers can tell the user, instead
+    // of leaving "打开诊断与恢复" as the only way to ever find out.
+    const skipped = [];
     for (const path of files) {
       const raw = await this.readJson(path, null, { silent: true });
-      if (!raw) continue;
+      if (!raw) {
+        skipped.push(path);
+        continue;
+      }
       const normalized = Core.normalizePage(raw);
-      if (Core.validatePage(normalized).length === 0) pages.push(Core.pageToMeta(normalized));
+      const issues = Core.validatePage(normalized);
+      if (issues.length === 0) pages.push(Core.pageToMeta(normalized));
+      else skipped.push(path);
     }
     this.workspace.pages = Core.sortPageMetas(pages);
     if (!this.workspace.pages.some((page) => page.id === this.workspace.activePageId)) {
       this.workspace.activePageId = this.workspace.pages[0] ? this.workspace.pages[0].id : null;
     }
     await this.saveWorkspace();
+    this.lastIndexRebuildSkipped = skipped;
     return this.workspace.pages.length;
   }
 
@@ -1657,6 +1702,7 @@ class BlockspaceStore {
   }
 
   async flush() {
+    await Promise.all(Array.from(this.pageSaveLocks.values()).map((promise) => promise.catch(() => undefined)));
     await Promise.all(Array.from(this.writeQueues.values()).map((promise) => promise.catch(() => undefined)));
   }
 }
@@ -1992,6 +2038,16 @@ class BlockspaceView extends ItemView {
     this.boundCopy = (event) => this.handleClipboardCopy(event, false);
     this.boundCut = (event) => this.handleClipboardCopy(event, true);
     this.boundPointerUp = () => this.endGutterSelection();
+    // Obsidian's plugin teardown (disable, reload, app quit) does not await
+    // onunload()'s promise, so a save still waiting out the autosave debounce
+    // at that moment can be lost with nothing journaled for it. Flushing
+    // eagerly the moment this window loses focus or is hidden narrows that
+    // window to "the user quit mid-keystroke without ever blurring first",
+    // instead of "any edit within the debounce delay of a quit".
+    this.boundWindowBlur = () => { void this.flushSave(); };
+    this.boundVisibilityChange = () => {
+      if (this.contentEl.ownerDocument.visibilityState === 'hidden') void this.flushSave();
+    };
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -3772,6 +3828,12 @@ class BlockspaceView extends ItemView {
     this.dirty = true;
     this.changeGeneration += 1;
     this.scheduleSave();
+    // Live typing changes block text/offsets out from under any open Find &
+    // Replace session; without this, its match list and highlights go stale
+    // (wrong counts, replace silently no-oping) until the user touches the
+    // find bar's own inputs. Route through the same debounced refresh used
+    // by those inputs so this doesn't add overhead on every keystroke.
+    if (this.findReplaceState && this.findReplaceState.open) this.scheduleFindRefresh({ resetActive: false });
     if (this.pendingEdit) this.pendingEdit.lastAt = Date.now();
     const win = this.contentEl.ownerDocument.defaultView;
     if (this.pendingEditTimer !== null) win.clearTimeout(this.pendingEditTimer);
@@ -3850,6 +3912,8 @@ class BlockspaceView extends ItemView {
     this.contentEl.ownerDocument.addEventListener('copy', this.boundCopy);
     this.contentEl.ownerDocument.addEventListener('cut', this.boundCut);
     this.contentEl.ownerDocument.addEventListener('pointerup', this.boundPointerUp);
+    this.contentEl.ownerDocument.defaultView.addEventListener('blur', this.boundWindowBlur);
+    this.contentEl.ownerDocument.addEventListener('visibilitychange', this.boundVisibilityChange);
   }
 
   async onClose() {
@@ -3859,6 +3923,8 @@ class BlockspaceView extends ItemView {
     this.contentEl.ownerDocument.removeEventListener('copy', this.boundCopy);
     this.contentEl.ownerDocument.removeEventListener('cut', this.boundCut);
     this.contentEl.ownerDocument.removeEventListener('pointerup', this.boundPointerUp);
+    this.contentEl.ownerDocument.defaultView.removeEventListener('blur', this.boundWindowBlur);
+    this.contentEl.ownerDocument.removeEventListener('visibilitychange', this.boundVisibilityChange);
     this.closeFormatToolbar();
     this.closeBlockSelectionToolbar();
     this.closeFindReplace({ restoreFocus: false });
@@ -5272,14 +5338,26 @@ class BlockspaceView extends ItemView {
   async insertUploadedFiles(files, anchorId) {
     const sourceFiles = Array.from(files || []).filter(Boolean);
     if (!sourceFiles.length || !this.page) return [];
+    // Each file is written to the vault independently: if file 2 of 3 fails,
+    // files 1 and 3 already exist on disk. Aborting the whole batch here used
+    // to leave those successful writes as untracked, orphaned attachments
+    // (no block ever referenced them). Insert blocks for whatever succeeded
+    // instead, and just report the failures.
     const records = [];
-    try {
-      for (const file of sourceFiles) records.push(await this.writeAttachmentFile(file));
-    } catch (error) {
-      console.error('Blockspace: attachment import failed', error);
-      new Notice(`附件导入失败：${error && error.message ? error.message : error}`);
-      return [];
+    const failures = [];
+    for (const file of sourceFiles) {
+      try {
+        records.push(await this.writeAttachmentFile(file));
+      } catch (error) {
+        console.error('Blockspace: attachment import failed', error);
+        failures.push({ name: file.name || '未命名文件', error });
+      }
     }
+    if (failures.length) {
+      const names = failures.map((failure) => failure.name).join('、');
+      new Notice(`部分附件导入失败：${names}`);
+    }
+    if (!records.length) return [];
     const blocks = records.map((record) => this.uploadedFileBlock(record));
     const current = Core.getBlock(this.page, anchorId);
     const replaceEmpty = current && current.type === 'paragraph' && !current.text && !current.children.length;
@@ -7848,6 +7926,22 @@ class BlockspaceView extends ItemView {
     if (deletingActivePage) this.setPage(activeId ? await this.plugin.store.loadPage(activeId) : null);
     this.render();
     new Notice('页面已删除');
+    await this.notifyOtherViewsPageRemoved(meta.id, activeId);
+  }
+
+  // Other panes showing the same page have no way to learn it was deleted
+  // here; left alone, their next autosave would fail with an opaque
+  // "page file missing" conflict instead of a clear explanation. flushSave()
+  // first so any unsaved edits in that pane are preserved as a recovery copy
+  // (via the existing conflict-recovery path) rather than silently dropped.
+  async notifyOtherViewsPageRemoved(removedId, activeId) {
+    for (const view of this.plugin.views) {
+      if (view === this || !view.page || view.page.id !== removedId) continue;
+      await view.flushSave().catch(() => undefined);
+      view.setPage(activeId ? await this.plugin.store.loadPage(activeId) : null);
+      view.render();
+      new Notice('当前页面已在其他窗格中被删除');
+    }
   }
 
   insertBlock(indexOrAnchor) {
@@ -8361,7 +8455,10 @@ class BlockspaceDiagnosticsModal extends Modal {
       rebuild.disabled = true;
       try {
         const count = await this.plugin.store.rebuildWorkspaceIndex();
-        new Notice(`Blockspace 已重建 ${count} 个页面索引`);
+        const skipped = this.plugin.store.lastIndexRebuildSkipped || [];
+        new Notice(skipped.length
+          ? `Blockspace 已重建 ${count} 个页面索引，跳过了 ${skipped.length} 个无法读取的文件`
+          : `Blockspace 已重建 ${count} 个页面索引`);
         for (const view of this.plugin.views) view.render();
         await this.renderReport();
       } finally {
