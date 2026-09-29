@@ -2027,6 +2027,7 @@
   align-items: center;
   gap: 10px;
   min-height: 44px;
+  padding-left: calc(var(--bs-switcher-depth, 0) * 20px);
 }
 .bs-switcher-icon {
   display: grid;
@@ -2759,6 +2760,21 @@
 .bs-inspector-property-label {
   overflow: hidden;
   color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bs-inspector-parent-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+.bs-inspector-parent-value > span {
+  overflow: hidden;
+  color: var(--text-normal);
   font-size: var(--font-ui-small);
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -1491,11 +1491,47 @@ class BlockspaceStore {
     return page;
   }
 
+  // True if pageId is ancestorId itself, or is nested (directly or
+  // transitively) under it. Used to reject a reparent that would create a
+  // cycle: setting A's parent to B is only safe when B is not A itself and
+  // not already a descendant of A.
+  isDescendantOfPage(pageId, ancestorId) {
+    let current = this.workspace.pages.find((page) => page.id === pageId);
+    const seen = new Set();
+    while (current) {
+      if (current.id === ancestorId) return true;
+      if (seen.has(current.id)) return false;
+      seen.add(current.id);
+      current = current.parentId ? this.workspace.pages.find((page) => page.id === current.parentId) : null;
+    }
+    return false;
+  }
+
+  async setPageParent(id, parentId) {
+    const normalizedParentId = typeof parentId === 'string' && parentId ? parentId : null;
+    if (normalizedParentId === id) return false;
+    if (normalizedParentId && !this.workspace.pages.some((page) => page.id === normalizedParentId)) return false;
+    if (normalizedParentId && this.isDescendantOfPage(normalizedParentId, id)) return false;
+    const page = await this.loadPage(id);
+    if (!page) return false;
+    if ((page.parentId || null) === normalizedParentId) return true;
+    page.parentId = normalizedParentId;
+    await this.savePage(page, { expectedRevision: page.revision, createSnapshot: false });
+    return true;
+  }
+
   async deletePage(id) {
     const sourcePath = this.pagePath(id);
     const deletedPage = await this.readJson(sourcePath, null, { silent: true });
     let trashPath = null;
     let replacementPageId = null;
+    // A child page's parentId would otherwise keep pointing at a page that no
+    // longer exists, quietly dropping it out of the tree. Promote children up
+    // to the deleted page's own parent instead.
+    const deletedMeta = this.workspace.pages.find((page) => page.id === id);
+    const promotedParentId = deletedMeta ? deletedMeta.parentId || null : null;
+    const childIds = this.workspace.pages.filter((page) => page.parentId === id).map((page) => page.id);
+    for (const childId of childIds) await this.setPageParent(childId, promotedParentId);
     if (await this.app.vault.adapter.exists(sourcePath)) {
       await this.ensureFolder(this.trashFolder);
       trashPath = normalizePath(`${this.trashFolder}/${id}-${Date.now()}.json`);
@@ -1727,6 +1763,72 @@ class MarkdownImportModal extends FuzzySuggestModal {
   }
 }
 
+class PageParentPickerModal extends FuzzySuggestModal {
+  constructor(app, plugin, meta, onChoose) {
+    super(app);
+    this.plugin = plugin;
+    this.meta = meta;
+    this.onChoose = onChoose;
+    this.setPlaceholder('选择父页面…');
+  }
+
+  getItems() {
+    const top = { id: null, title: '（移出到顶层，无父页面）', icon: '' };
+    const candidates = Core.sortPageMetas(this.plugin.store.workspace.pages)
+      .filter((page) => page.id !== this.meta.id && !this.plugin.store.isDescendantOfPage(page.id, this.meta.id));
+    return [top, ...candidates];
+  }
+
+  getItemText(item) {
+    return item.title;
+  }
+
+  renderSuggestion(item, element) {
+    element.addClass('bs-switcher-suggestion');
+    element.createSpan({ cls: 'bs-switcher-icon', text: item.icon || '⬆' });
+    const body = element.createSpan({ cls: 'bs-switcher-body' });
+    body.createSpan({ cls: 'bs-switcher-title', text: item.title });
+    if (item.id === (this.meta.parentId || null)) {
+      body.createSpan({ cls: 'bs-switcher-hint', text: '当前父页面' });
+    }
+  }
+
+  onChooseItem(item) {
+    void this.onChoose(item.id);
+  }
+}
+
+// Orders pages depth-first (root pages by recency, each immediately followed
+// by its own children, recursively) instead of sortPageMetas' flat recency
+// order, so a hierarchy of pages reads as a tree wherever this is used.
+// A page whose parentId is stale (points at a deleted/missing page) or part
+// of an accidental cycle is still included, surfaced at the top level,
+// rather than silently disappearing from the list.
+function flattenPageTree(pages) {
+  const sorted = Core.sortPageMetas(pages);
+  const byParent = new Map();
+  for (const page of sorted) {
+    const key = page.parentId || null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(page);
+  }
+  const result = [];
+  const seen = new Set();
+  const visit = (parentId, depth) => {
+    for (const page of byParent.get(parentId) || []) {
+      if (seen.has(page.id)) continue;
+      seen.add(page.id);
+      result.push({ page, depth });
+      visit(page.id, depth + 1);
+    }
+  };
+  visit(null, 0);
+  for (const page of sorted) {
+    if (!seen.has(page.id)) { seen.add(page.id); result.push({ page, depth: 0 }); }
+  }
+  return result;
+}
+
 class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
   constructor(app, plugin, view) {
     super(app);
@@ -1745,13 +1847,14 @@ class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
       { kind: 'action', id: 'import', label: '导入 Markdown', hint: '从现有笔记创建页面' },
       { kind: 'action', id: 'diagnostics', label: '诊断与恢复', hint: '检查结构化数据' },
     ];
-    const pages = Core.sortPageMetas(this.plugin.store.workspace.pages).map((page) => {
+    const pages = flattenPageTree(this.plugin.store.workspace.pages).map(({ page, depth }) => {
       const fullPage = this.view.page && this.view.page.id === page.id
         ? this.view.page
         : this.plugin.store.referencePages.get(page.id);
       return {
         kind: 'page',
         page,
+        depth,
         searchText: Core.pageSearchText(fullPage || page),
       };
     });
@@ -1768,6 +1871,10 @@ class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
     const item = suggestion && suggestion.item ? suggestion.item : suggestion;
     element.addClass('bs-switcher-suggestion');
     if (item.kind === 'page') {
+      // Hierarchy only reads clearly while browsing with an empty query —
+      // Obsidian's fuzzy match re-sorts by score once the user types, so
+      // depth stops being meaningful mid-search. That's expected here.
+      if (item.depth) element.style.setProperty('--bs-switcher-depth', String(item.depth));
       element.createSpan({ cls: 'bs-switcher-icon', text: item.page.icon || '📄' });
       const body = element.createSpan({ cls: 'bs-switcher-body' });
       body.createSpan({ cls: 'bs-switcher-title', text: item.page.title });
@@ -4739,6 +4846,16 @@ class BlockspaceView extends ItemView {
       .setIcon(boardActive ? 'file-text' : 'columns-3')
       .onClick(() => this.switchTab(boardActive ? 'document' : 'board')));
     menu.addItem((item) => item.setTitle('新建页面').setIcon('square-plus').onClick(() => void this.createPage()));
+    menu.addItem((item) => item
+      .setTitle('新建子页面')
+      .setIcon('git-branch-plus')
+      .setDisabled(!this.page)
+      .onClick(() => void this.createChildPage(this.page.id)));
+    menu.addItem((item) => item
+      .setTitle('移动页面…')
+      .setIcon('move')
+      .setDisabled(!this.page)
+      .onClick(() => void this.movePageParent(this.plugin.store.workspace.pages.find((meta) => meta.id === this.page.id) || Core.pageToMeta(this.page))));
     menu.addItem((item) => item.setTitle('查找当前页面文本').setIcon('search').onClick(() => this.openFindReplace(false)));
     menu.addItem((item) => item.setTitle('查找并替换').setIcon('replace').onClick(() => this.openFindReplace(true)));
     menu.addSeparator();
@@ -7909,6 +8026,8 @@ class BlockspaceView extends ItemView {
       const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
       void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
     }));
+    menu.addItem((item) => item.setTitle('新建子页面').setIcon('git-branch-plus').onClick(() => void this.createChildPage(meta.id)));
+    menu.addItem((item) => item.setTitle('移动页面…').setIcon('move').onClick(() => void this.movePageParent(meta)));
     this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
     menu.addSeparator();
     menu.addItem((item) => item.setTitle('删除页面').setIcon('trash-2').onClick(() => void this.removePage(meta)));
@@ -7993,6 +8112,8 @@ class BlockspaceView extends ItemView {
       const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
       void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
     }));
+    menu.addItem((item) => item.setTitle('新建子页面').setIcon('git-branch-plus').onClick(() => void this.createChildPage(meta.id)));
+    menu.addItem((item) => item.setTitle('移动页面…').setIcon('move').onClick(() => void this.movePageParent(meta)));
     this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
     menu.addSeparator();
     for (const status of Core.PAGE_STATUSES) {
@@ -8153,9 +8274,9 @@ class BlockspaceView extends ItemView {
     if (typeof this.app.workspace.requestSaveLayout === 'function') this.app.workspace.requestSaveLayout();
   }
 
-  async createPage(status = 'todo') {
+  async createPage(status = 'todo', extras = {}) {
     if (!(await this.flushSave())) return;
-    this.setPage(await this.plugin.store.createPage('Untitled', { status }));
+    this.setPage(await this.plugin.store.createPage('Untitled', { status, ...extras }));
     this.activeTab = 'document';
     this.render();
     const title = this.contentEl.querySelector('.bs-page-title');
@@ -8167,6 +8288,20 @@ class BlockspaceView extends ItemView {
       selection.removeAllRanges();
       selection.addRange(range);
     }
+  }
+
+  async createChildPage(parentId) {
+    await this.createPage('todo', { parentId });
+  }
+
+  async movePageParent(meta) {
+    new PageParentPickerModal(this.app, this.plugin, meta, async (parentId) => {
+      const ok = await this.plugin.store.setPageParent(meta.id, parentId);
+      if (!ok) { new Notice('无法移动页面：目标会形成循环层级'); return; }
+      new Notice(parentId ? '已设置父页面' : '已移出到顶层');
+      this.plugin.notifyContextChanged();
+      this.render();
+    }).open();
   }
 
   scheduleSave() {
@@ -8318,6 +8453,14 @@ class BlockspaceInspectorView extends ItemView {
     tags.addEventListener('change', () => view.performMutation('修改页面标签', (target) => {
       target.properties.tags = tags.value.split(/[,，]/).map((value) => value.trim()).filter(Boolean);
     }));
+
+    const parentRow = properties.createDiv({ cls: 'bs-inspector-property' });
+    parentRow.createSpan({ cls: 'bs-inspector-property-label', text: '父页面' });
+    const parentValueWrap = parentRow.createDiv({ cls: 'bs-inspector-parent-value' });
+    const parentMeta = page.parentId ? this.plugin.store.workspace.pages.find((candidate) => candidate.id === page.parentId) : null;
+    parentValueWrap.createSpan({ text: parentMeta ? `${parentMeta.icon || '📄'} ${parentMeta.title}` : '无（顶层页面）' });
+    const parentButton = createButton(parentValueWrap, 'bs-icon-button', '更改父页面', 'move');
+    parentButton.addEventListener('click', () => void view.movePageParent(this.plugin.store.workspace.pages.find((candidate) => candidate.id === page.id) || Core.pageToMeta(page)));
 
     const outline = this.createSection('大纲', 'list-tree');
     const headings = Core.deriveOutline(page);

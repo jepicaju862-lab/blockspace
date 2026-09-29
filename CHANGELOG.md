@@ -7,6 +7,30 @@ version field was also out of sync with the version documented in the README and
 embedded in `main.js` for several releases. This file starts tracking from the
 point that was fixed.
 
+## 0.18.0
+
+- **Added: page hierarchy.** Pages already had a `parentId` field on disk, but
+  nothing could set it and nothing rendered it — no way to create a sub-page,
+  no tree view anywhere, so it was pure dead data. This wires it up:
+  - "新建子页面" (new sub-page) in the current-page menu and the page-card
+    menu (kanban board), creating a page with the current one as its parent.
+  - "移动页面…" (move page) opens a page picker to set or clear a page's
+    parent; a page's parent can also be changed from the "父页面" row now in
+    the inspector's page-properties section.
+  - Reparenting rejects a page becoming its own parent or being moved under
+    one of its own descendants (would create a cycle).
+  - Deleting a page promotes its children to the deleted page's own parent,
+    instead of leaving their `parentId` pointing at a page that no longer
+    exists.
+  - The quick switcher now lists pages depth-first (a page immediately
+    followed by its own children, each indented one level further) instead
+    of a flat recency list, so the hierarchy is visible while browsing.
+  - Verified with a standalone test exercising cycle rejection, a valid
+    reparent, and child promotion on delete against an in-memory vault
+    adapter, plus a second test of the quick switcher's tree-ordering
+    (including its fallback for a page with a stale/cyclic `parentId`, which
+    still surfaces at the top level instead of disappearing).
+
 ## 0.17.3
 
 - **Fix (data loss):** two panes with the same page open could both pass
