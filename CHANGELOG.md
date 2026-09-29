@@ -7,6 +7,20 @@ version field was also out of sync with the version documented in the README and
 embedded in `main.js` for several releases. This file starts tracking from the
 point that was fixed.
 
+## 0.18.1
+
+- **Cleanup:** the current-page menu, the kanban card menu, and the (separate,
+  near-identical) page-card menu each had their own copy of "打开" / "复制页面
+  链接" / "新建子页面" / "移动页面…" / export items. Extracted a shared
+  `buildPageActionsMenu` + `addPageHierarchyMenuItems` so there is one place
+  that builds them, instead of three that had to be kept in sync by hand.
+- **Cleanup:** the settings tab was one flat, unordered list of 23 settings.
+  Grouped it into four headed sections (数据与存储 / Markdown 与互操作 / 外观
+  与布局 / 工作台行为) using Obsidian's `Setting.setHeading()`, matching
+  current plugin-settings conventions. No setting was added, removed, or
+  renamed — verified the exact same 23 setting names still appear, only
+  reordered and grouped.
+
 ## 0.18.0
 
 - **Added: page hierarchy.** Pages already had a `parentId` field on disk, but

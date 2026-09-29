@@ -4846,16 +4846,7 @@ class BlockspaceView extends ItemView {
       .setIcon(boardActive ? 'file-text' : 'columns-3')
       .onClick(() => this.switchTab(boardActive ? 'document' : 'board')));
     menu.addItem((item) => item.setTitle('新建页面').setIcon('square-plus').onClick(() => void this.createPage()));
-    menu.addItem((item) => item
-      .setTitle('新建子页面')
-      .setIcon('git-branch-plus')
-      .setDisabled(!this.page)
-      .onClick(() => void this.createChildPage(this.page.id)));
-    menu.addItem((item) => item
-      .setTitle('移动页面…')
-      .setIcon('move')
-      .setDisabled(!this.page)
-      .onClick(() => void this.movePageParent(this.plugin.store.workspace.pages.find((meta) => meta.id === this.page.id) || Core.pageToMeta(this.page))));
+    this.addPageHierarchyMenuItems(menu, this.page ? this.currentPageMeta() : { id: null }, { disabled: !this.page });
     menu.addItem((item) => item.setTitle('查找当前页面文本').setIcon('search').onClick(() => this.openFindReplace(false)));
     menu.addItem((item) => item.setTitle('查找并替换').setIcon('replace').onClick(() => this.openFindReplace(true)));
     menu.addSeparator();
@@ -8017,18 +8008,36 @@ class BlockspaceView extends ItemView {
   }
 
 
-  showPageMenu(event, meta) {
-    if (event && typeof event.preventDefault === 'function') event.preventDefault();
-    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  // Shared by showPageMenu and showBoardCardMenu, which otherwise differ only
+  // in the status-move items the board adds and in how they dispatch the
+  // triggering event. Kept as a plain Menu builder (no separators/delete) so
+  // each caller stays in control of what comes after.
+  buildPageActionsMenu(meta) {
     const menu = new Menu();
     menu.addItem((item) => item.setTitle('打开').setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
     menu.addItem((item) => item.setTitle('复制页面链接').setIcon('link').onClick(() => {
       const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
       void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
     }));
-    menu.addItem((item) => item.setTitle('新建子页面').setIcon('git-branch-plus').onClick(() => void this.createChildPage(meta.id)));
-    menu.addItem((item) => item.setTitle('移动页面…').setIcon('move').onClick(() => void this.movePageParent(meta)));
+    this.addPageHierarchyMenuItems(menu, meta);
     this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
+    return menu;
+  }
+
+  addPageHierarchyMenuItems(menu, meta, { disabled = false } = {}) {
+    menu.addItem((item) => item.setTitle('新建子页面').setIcon('git-branch-plus').setDisabled(disabled).onClick(() => void this.createChildPage(meta.id)));
+    menu.addItem((item) => item.setTitle('移动页面…').setIcon('move').setDisabled(disabled).onClick(() => void this.movePageParent(meta)));
+  }
+
+  currentPageMeta() {
+    if (!this.page) return null;
+    return this.plugin.store.workspace.pages.find((meta) => meta.id === this.page.id) || Core.pageToMeta(this.page);
+  }
+
+  showPageMenu(event, meta) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    const menu = this.buildPageActionsMenu(meta);
     menu.addSeparator();
     menu.addItem((item) => item.setTitle('删除页面').setIcon('trash-2').onClick(() => void this.removePage(meta)));
     menu.showAtMouseEvent(event);
@@ -8106,15 +8115,7 @@ class BlockspaceView extends ItemView {
   showBoardCardMenu(event, meta) {
     event.preventDefault();
     event.stopPropagation();
-    const menu = new Menu();
-    menu.addItem((item) => item.setTitle('打开').setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
-    menu.addItem((item) => item.setTitle('复制页面链接').setIcon('link').onClick(() => {
-      const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
-      void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
-    }));
-    menu.addItem((item) => item.setTitle('新建子页面').setIcon('git-branch-plus').onClick(() => void this.createChildPage(meta.id)));
-    menu.addItem((item) => item.setTitle('移动页面…').setIcon('move').onClick(() => void this.movePageParent(meta)));
-    this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
+    const menu = this.buildPageActionsMenu(meta);
     menu.addSeparator();
     for (const status of Core.PAGE_STATUSES) {
       menu.addItem((item) => item
@@ -8460,7 +8461,7 @@ class BlockspaceInspectorView extends ItemView {
     const parentMeta = page.parentId ? this.plugin.store.workspace.pages.find((candidate) => candidate.id === page.parentId) : null;
     parentValueWrap.createSpan({ text: parentMeta ? `${parentMeta.icon || '📄'} ${parentMeta.title}` : '无（顶层页面）' });
     const parentButton = createButton(parentValueWrap, 'bs-icon-button', '更改父页面', 'move');
-    parentButton.addEventListener('click', () => void view.movePageParent(this.plugin.store.workspace.pages.find((candidate) => candidate.id === page.id) || Core.pageToMeta(page)));
+    parentButton.addEventListener('click', () => void view.movePageParent(view.currentPageMeta()));
 
     const outline = this.createSection('大纲', 'list-tree');
     const headings = Core.deriveOutline(page);
@@ -8676,6 +8677,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
     // The field only stages a value: migrating on every keystroke would copy the
     // whole data directory once per character.
     let pendingDataFolder = this.plugin.settings.dataFolder;
+
+    new Setting(containerEl).setName('数据与存储').setHeading();
     new Setting(containerEl)
       .setName('数据目录')
       .setDesc('Blockspace 结构化页面存储目录。iOS / iPadOS 对点开头的隐藏目录限制较多，若移动端提示无权限保存，可改为不带点的名字（例如 Blockspace Data）。改好后点“迁移并应用”，原目录会保留为备份，重启插件后生效。')
@@ -8707,17 +8710,51 @@ class BlockspaceSettingTab extends PluginSettingTab {
           }
         }));
     new Setting(containerEl)
-      .setName('Markdown 导出目录')
-      .setDesc('导出页面时保存 Markdown 文件的位置。')
-      .addText((text) => text.setValue(this.plugin.settings.exportFolder).onChange(async (value) => {
-        this.plugin.settings.exportFolder = value.trim() || DEFAULT_SETTINGS.exportFolder;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
       .setName('附件目录')
       .setDesc('粘贴、拖入或上传的图片、视频、音频和文件会写入此 Vault 相对目录。')
       .addText((text) => text.setValue(this.plugin.settings.attachmentFolder || DEFAULT_SETTINGS.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value.trim() || DEFAULT_SETTINGS.attachmentFolder;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('自动保存延迟')
+      .setDesc('停止输入后等待多少毫秒写入页面文件。')
+      .addText((text) => text.setValue(String(this.plugin.settings.autosaveDelay)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.autosaveDelay = Number.isFinite(parsed) ? Math.max(100, Math.min(3000, parsed)) : 350;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('撤销历史条数')
+      .setDesc('每个打开页面在内存中保留的事务历史，范围 20–1000。')
+      .addText((text) => text.setValue(String(this.plugin.settings.historyLimit)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.historyLimit = Number.isFinite(parsed) ? Math.max(20, Math.min(1000, parsed)) : 150;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('每页恢复快照数')
+      .setDesc('保存新修订前保留旧页面快照，范围 1–100。')
+      .addText((text) => text.setValue(String(this.plugin.settings.snapshotLimit)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.snapshotLimit = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 12;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('恢复快照最小间隔')
+      .setDesc('连续保存时至少间隔多少分钟才生成下一份完整快照，范围 1–240。待恢复日志仍会在每次保存前写入。')
+      .addText((text) => text.setValue(String(this.plugin.settings.snapshotIntervalMinutes)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.snapshotIntervalMinutes = Number.isFinite(parsed) ? Math.max(1, Math.min(240, parsed)) : 5;
+        await this.plugin.saveSettings();
+      }));
+
+    new Setting(containerEl).setName('Markdown 与互操作').setHeading();
+    new Setting(containerEl)
+      .setName('Markdown 导出目录')
+      .setDesc('导出页面时保存 Markdown 文件的位置。')
+      .addText((text) => text.setValue(this.plugin.settings.exportFolder).onChange(async (value) => {
+        this.plugin.settings.exportFolder = value.trim() || DEFAULT_SETTINGS.exportFolder;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
@@ -8804,38 +8841,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
           }
         });
       });
-    new Setting(containerEl)
-      .setName('自动保存延迟')
-      .setDesc('停止输入后等待多少毫秒写入页面文件。')
-      .addText((text) => text.setValue(String(this.plugin.settings.autosaveDelay)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.autosaveDelay = Number.isFinite(parsed) ? Math.max(100, Math.min(3000, parsed)) : 350;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
-      .setName('撤销历史条数')
-      .setDesc('每个打开页面在内存中保留的事务历史，范围 20–1000。')
-      .addText((text) => text.setValue(String(this.plugin.settings.historyLimit)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.historyLimit = Number.isFinite(parsed) ? Math.max(20, Math.min(1000, parsed)) : 150;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
-      .setName('每页恢复快照数')
-      .setDesc('保存新修订前保留旧页面快照，范围 1–100。')
-      .addText((text) => text.setValue(String(this.plugin.settings.snapshotLimit)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.snapshotLimit = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 12;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
-      .setName('恢复快照最小间隔')
-      .setDesc('连续保存时至少间隔多少分钟才生成下一份完整快照，范围 1–240。待恢复日志仍会在每次保存前写入。')
-      .addText((text) => text.setValue(String(this.plugin.settings.snapshotIntervalMinutes)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.snapshotIntervalMinutes = Number.isFinite(parsed) ? Math.max(1, Math.min(240, parsed)) : 5;
-        await this.plugin.saveSettings();
-      }));
+
+    new Setting(containerEl).setName('外观与布局').setHeading();
     new Setting(containerEl)
       .setName('默认展开页面属性')
       .setDesc('关闭后，状态、优先级和标签会以紧凑摘要显示。')
@@ -8919,6 +8926,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
         await this.plugin.saveSettings();
         for (const view of this.plugin.views) view.render();
       }));
+
+    new Setting(containerEl).setName('工作台行为').setHeading();
     new Setting(containerEl)
       .setName('打开工作台时显示页面检查器')
       .setDesc('在 Obsidian 原生右侧栏中显示属性、大纲、统计和存储状态。')
