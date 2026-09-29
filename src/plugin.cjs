@@ -805,6 +805,7 @@ class BlockspaceStore {
     this.initialized = false;
     this.initPromise = null;
     this.writeQueues = new Map();
+    this.pageSaveLocks = new Map();
     this.folderLocks = new Map();
     this.lastSnapshotAt = new Map();
     this.lastJournalRecovery = { recovered: 0, conflicts: 0, discarded: 0 };
@@ -861,6 +862,23 @@ class BlockspaceStore {
         if (this.writeQueues.get(path) === next) this.writeQueues.delete(path);
       });
     this.writeQueues.set(path, next);
+    return next;
+  }
+
+  // Serializes the whole read-check-write critical section for a given key
+  // (unlike enqueue/writeQueues, which only serialize individual file writes).
+  // savePage uses this so two concurrent callers for the same page id — e.g.
+  // the same page open in two panes — cannot both pass the revision check
+  // against the same stale disk read and silently clobber each other.
+  runSerialized(key, task) {
+    const previous = this.pageSaveLocks.get(key) || Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(task)
+      .finally(() => {
+        if (this.pageSaveLocks.get(key) === next) this.pageSaveLocks.delete(key);
+      });
+    this.pageSaveLocks.set(key, next);
     return next;
   }
 
@@ -982,6 +1000,9 @@ class BlockspaceStore {
         // every startup so a missing/corrupt workspace.json never makes valid
         // pages appear to be lost.
         await this.rebuildWorkspaceIndex();
+        if (this.lastIndexRebuildSkipped && this.lastIndexRebuildSkipped.length) {
+          new Notice(`Blockspace：启动时跳过了 ${this.lastIndexRebuildSkipped.length} 个无法读取的页面文件，请打开"诊断与恢复"查看详情`);
+        }
         if (this.workspace.pages.length === 0) {
           const page = Core.createDefaultPage();
           await this.savePage(page, { saveIndex: false, createSnapshot: false });
@@ -1395,6 +1416,18 @@ class BlockspaceStore {
     const saveIndex = opts.saveIndex !== false;
     const createSnapshot = opts.createSnapshot !== false;
     const expectedRevision = Number.isFinite(opts.expectedRevision) ? Number(opts.expectedRevision) : null;
+    // The disk-revision check below and the write that follows it must happen
+    // as one unit per page id: if two callers (e.g. the same page open in two
+    // panes) both read the same stale revision before either has written,
+    // both checks would pass and the second write would silently clobber the
+    // first. Serializing here forces the second caller's read to happen after
+    // the first caller's write, so it correctly sees the bumped revision and
+    // throws ConflictError instead.
+    return this.runSerialized(page.id, () => this.savePageLocked(page, { saveIndex, createSnapshot, expectedRevision, forceSnapshot: opts.forceSnapshot }));
+  }
+
+  async savePageLocked(page, opts) {
+    const { saveIndex, createSnapshot, expectedRevision } = opts;
     let normalized = Core.normalizePage(page);
     if (expectedRevision !== null && normalized.revision <= expectedRevision) {
       normalized.revision = expectedRevision + 1;
@@ -1458,11 +1491,47 @@ class BlockspaceStore {
     return page;
   }
 
+  // True if pageId is ancestorId itself, or is nested (directly or
+  // transitively) under it. Used to reject a reparent that would create a
+  // cycle: setting A's parent to B is only safe when B is not A itself and
+  // not already a descendant of A.
+  isDescendantOfPage(pageId, ancestorId) {
+    let current = this.workspace.pages.find((page) => page.id === pageId);
+    const seen = new Set();
+    while (current) {
+      if (current.id === ancestorId) return true;
+      if (seen.has(current.id)) return false;
+      seen.add(current.id);
+      current = current.parentId ? this.workspace.pages.find((page) => page.id === current.parentId) : null;
+    }
+    return false;
+  }
+
+  async setPageParent(id, parentId) {
+    const normalizedParentId = typeof parentId === 'string' && parentId ? parentId : null;
+    if (normalizedParentId === id) return false;
+    if (normalizedParentId && !this.workspace.pages.some((page) => page.id === normalizedParentId)) return false;
+    if (normalizedParentId && this.isDescendantOfPage(normalizedParentId, id)) return false;
+    const page = await this.loadPage(id);
+    if (!page) return false;
+    if ((page.parentId || null) === normalizedParentId) return true;
+    page.parentId = normalizedParentId;
+    await this.savePage(page, { expectedRevision: page.revision, createSnapshot: false });
+    return true;
+  }
+
   async deletePage(id) {
     const sourcePath = this.pagePath(id);
     const deletedPage = await this.readJson(sourcePath, null, { silent: true });
     let trashPath = null;
     let replacementPageId = null;
+    // A child page's parentId would otherwise keep pointing at a page that no
+    // longer exists, quietly dropping it out of the tree. Promote children up
+    // to the deleted page's own parent instead.
+    const deletedMeta = this.workspace.pages.find((page) => page.id === id);
+    const promotedParentId = deletedMeta ? deletedMeta.parentId || null : null;
+    const childIds = this.workspace.pages.filter((page) => page.parentId === id).map((page) => page.id);
+    for (const childId of childIds) await this.setPageParent(childId, promotedParentId);
     if (await this.app.vault.adapter.exists(sourcePath)) {
       await this.ensureFolder(this.trashFolder);
       trashPath = normalizePath(`${this.trashFolder}/${id}-${Date.now()}.json`);
@@ -1543,17 +1612,29 @@ class BlockspaceStore {
     await this.ensureFolder(this.pagesFolder);
     const files = (await this.listFiles(this.pagesFolder)).filter((path) => path.endsWith('.json'));
     const pages = [];
+    // A page file that fails to parse or fails validation is dropped from the
+    // index here with no signal beyond a console.error (or, for a validation
+    // failure, no signal at all) — the page just silently disappears from the
+    // workspace. Track what was skipped so callers can tell the user, instead
+    // of leaving "打开诊断与恢复" as the only way to ever find out.
+    const skipped = [];
     for (const path of files) {
       const raw = await this.readJson(path, null, { silent: true });
-      if (!raw) continue;
+      if (!raw) {
+        skipped.push(path);
+        continue;
+      }
       const normalized = Core.normalizePage(raw);
-      if (Core.validatePage(normalized).length === 0) pages.push(Core.pageToMeta(normalized));
+      const issues = Core.validatePage(normalized);
+      if (issues.length === 0) pages.push(Core.pageToMeta(normalized));
+      else skipped.push(path);
     }
     this.workspace.pages = Core.sortPageMetas(pages);
     if (!this.workspace.pages.some((page) => page.id === this.workspace.activePageId)) {
       this.workspace.activePageId = this.workspace.pages[0] ? this.workspace.pages[0].id : null;
     }
     await this.saveWorkspace();
+    this.lastIndexRebuildSkipped = skipped;
     return this.workspace.pages.length;
   }
 
@@ -1657,6 +1738,7 @@ class BlockspaceStore {
   }
 
   async flush() {
+    await Promise.all(Array.from(this.pageSaveLocks.values()).map((promise) => promise.catch(() => undefined)));
     await Promise.all(Array.from(this.writeQueues.values()).map((promise) => promise.catch(() => undefined)));
   }
 }
@@ -1681,6 +1763,72 @@ class MarkdownImportModal extends FuzzySuggestModal {
   }
 }
 
+class PageParentPickerModal extends FuzzySuggestModal {
+  constructor(app, plugin, meta, onChoose) {
+    super(app);
+    this.plugin = plugin;
+    this.meta = meta;
+    this.onChoose = onChoose;
+    this.setPlaceholder('选择父页面…');
+  }
+
+  getItems() {
+    const top = { id: null, title: '（移出到顶层，无父页面）', icon: '' };
+    const candidates = Core.sortPageMetas(this.plugin.store.workspace.pages)
+      .filter((page) => page.id !== this.meta.id && !this.plugin.store.isDescendantOfPage(page.id, this.meta.id));
+    return [top, ...candidates];
+  }
+
+  getItemText(item) {
+    return item.title;
+  }
+
+  renderSuggestion(item, element) {
+    element.addClass('bs-switcher-suggestion');
+    element.createSpan({ cls: 'bs-switcher-icon', text: item.icon || '⬆' });
+    const body = element.createSpan({ cls: 'bs-switcher-body' });
+    body.createSpan({ cls: 'bs-switcher-title', text: item.title });
+    if (item.id === (this.meta.parentId || null)) {
+      body.createSpan({ cls: 'bs-switcher-hint', text: '当前父页面' });
+    }
+  }
+
+  onChooseItem(item) {
+    void this.onChoose(item.id);
+  }
+}
+
+// Orders pages depth-first (root pages by recency, each immediately followed
+// by its own children, recursively) instead of sortPageMetas' flat recency
+// order, so a hierarchy of pages reads as a tree wherever this is used.
+// A page whose parentId is stale (points at a deleted/missing page) or part
+// of an accidental cycle is still included, surfaced at the top level,
+// rather than silently disappearing from the list.
+function flattenPageTree(pages) {
+  const sorted = Core.sortPageMetas(pages);
+  const byParent = new Map();
+  for (const page of sorted) {
+    const key = page.parentId || null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(page);
+  }
+  const result = [];
+  const seen = new Set();
+  const visit = (parentId, depth) => {
+    for (const page of byParent.get(parentId) || []) {
+      if (seen.has(page.id)) continue;
+      seen.add(page.id);
+      result.push({ page, depth });
+      visit(page.id, depth + 1);
+    }
+  };
+  visit(null, 0);
+  for (const page of sorted) {
+    if (!seen.has(page.id)) { seen.add(page.id); result.push({ page, depth: 0 }); }
+  }
+  return result;
+}
+
 class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
   constructor(app, plugin, view) {
     super(app);
@@ -1699,13 +1847,14 @@ class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
       { kind: 'action', id: 'import', label: '导入 Markdown', hint: '从现有笔记创建页面' },
       { kind: 'action', id: 'diagnostics', label: '诊断与恢复', hint: '检查结构化数据' },
     ];
-    const pages = Core.sortPageMetas(this.plugin.store.workspace.pages).map((page) => {
+    const pages = flattenPageTree(this.plugin.store.workspace.pages).map(({ page, depth }) => {
       const fullPage = this.view.page && this.view.page.id === page.id
         ? this.view.page
         : this.plugin.store.referencePages.get(page.id);
       return {
         kind: 'page',
         page,
+        depth,
         searchText: Core.pageSearchText(fullPage || page),
       };
     });
@@ -1722,6 +1871,10 @@ class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
     const item = suggestion && suggestion.item ? suggestion.item : suggestion;
     element.addClass('bs-switcher-suggestion');
     if (item.kind === 'page') {
+      // Hierarchy only reads clearly while browsing with an empty query —
+      // Obsidian's fuzzy match re-sorts by score once the user types, so
+      // depth stops being meaningful mid-search. That's expected here.
+      if (item.depth) element.style.setProperty('--bs-switcher-depth', String(item.depth));
       element.createSpan({ cls: 'bs-switcher-icon', text: item.page.icon || '📄' });
       const body = element.createSpan({ cls: 'bs-switcher-body' });
       body.createSpan({ cls: 'bs-switcher-title', text: item.page.title });
@@ -1992,6 +2145,16 @@ class BlockspaceView extends ItemView {
     this.boundCopy = (event) => this.handleClipboardCopy(event, false);
     this.boundCut = (event) => this.handleClipboardCopy(event, true);
     this.boundPointerUp = () => this.endGutterSelection();
+    // Obsidian's plugin teardown (disable, reload, app quit) does not await
+    // onunload()'s promise, so a save still waiting out the autosave debounce
+    // at that moment can be lost with nothing journaled for it. Flushing
+    // eagerly the moment this window loses focus or is hidden narrows that
+    // window to "the user quit mid-keystroke without ever blurring first",
+    // instead of "any edit within the debounce delay of a quit".
+    this.boundWindowBlur = () => { void this.flushSave(); };
+    this.boundVisibilityChange = () => {
+      if (this.contentEl.ownerDocument.visibilityState === 'hidden') void this.flushSave();
+    };
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -3772,6 +3935,12 @@ class BlockspaceView extends ItemView {
     this.dirty = true;
     this.changeGeneration += 1;
     this.scheduleSave();
+    // Live typing changes block text/offsets out from under any open Find &
+    // Replace session; without this, its match list and highlights go stale
+    // (wrong counts, replace silently no-oping) until the user touches the
+    // find bar's own inputs. Route through the same debounced refresh used
+    // by those inputs so this doesn't add overhead on every keystroke.
+    if (this.findReplaceState && this.findReplaceState.open) this.scheduleFindRefresh({ resetActive: false });
     if (this.pendingEdit) this.pendingEdit.lastAt = Date.now();
     const win = this.contentEl.ownerDocument.defaultView;
     if (this.pendingEditTimer !== null) win.clearTimeout(this.pendingEditTimer);
@@ -3850,6 +4019,8 @@ class BlockspaceView extends ItemView {
     this.contentEl.ownerDocument.addEventListener('copy', this.boundCopy);
     this.contentEl.ownerDocument.addEventListener('cut', this.boundCut);
     this.contentEl.ownerDocument.addEventListener('pointerup', this.boundPointerUp);
+    this.contentEl.ownerDocument.defaultView.addEventListener('blur', this.boundWindowBlur);
+    this.contentEl.ownerDocument.addEventListener('visibilitychange', this.boundVisibilityChange);
   }
 
   async onClose() {
@@ -3859,6 +4030,8 @@ class BlockspaceView extends ItemView {
     this.contentEl.ownerDocument.removeEventListener('copy', this.boundCopy);
     this.contentEl.ownerDocument.removeEventListener('cut', this.boundCut);
     this.contentEl.ownerDocument.removeEventListener('pointerup', this.boundPointerUp);
+    this.contentEl.ownerDocument.defaultView.removeEventListener('blur', this.boundWindowBlur);
+    this.contentEl.ownerDocument.removeEventListener('visibilitychange', this.boundVisibilityChange);
     this.closeFormatToolbar();
     this.closeBlockSelectionToolbar();
     this.closeFindReplace({ restoreFocus: false });
@@ -4673,6 +4846,7 @@ class BlockspaceView extends ItemView {
       .setIcon(boardActive ? 'file-text' : 'columns-3')
       .onClick(() => this.switchTab(boardActive ? 'document' : 'board')));
     menu.addItem((item) => item.setTitle('新建页面').setIcon('square-plus').onClick(() => void this.createPage()));
+    this.addPageHierarchyMenuItems(menu, this.page ? this.currentPageMeta() : { id: null }, { disabled: !this.page });
     menu.addItem((item) => item.setTitle('查找当前页面文本').setIcon('search').onClick(() => this.openFindReplace(false)));
     menu.addItem((item) => item.setTitle('查找并替换').setIcon('replace').onClick(() => this.openFindReplace(true)));
     menu.addSeparator();
@@ -5272,14 +5446,26 @@ class BlockspaceView extends ItemView {
   async insertUploadedFiles(files, anchorId) {
     const sourceFiles = Array.from(files || []).filter(Boolean);
     if (!sourceFiles.length || !this.page) return [];
+    // Each file is written to the vault independently: if file 2 of 3 fails,
+    // files 1 and 3 already exist on disk. Aborting the whole batch here used
+    // to leave those successful writes as untracked, orphaned attachments
+    // (no block ever referenced them). Insert blocks for whatever succeeded
+    // instead, and just report the failures.
     const records = [];
-    try {
-      for (const file of sourceFiles) records.push(await this.writeAttachmentFile(file));
-    } catch (error) {
-      console.error('Blockspace: attachment import failed', error);
-      new Notice(`附件导入失败：${error && error.message ? error.message : error}`);
-      return [];
+    const failures = [];
+    for (const file of sourceFiles) {
+      try {
+        records.push(await this.writeAttachmentFile(file));
+      } catch (error) {
+        console.error('Blockspace: attachment import failed', error);
+        failures.push({ name: file.name || '未命名文件', error });
+      }
     }
+    if (failures.length) {
+      const names = failures.map((failure) => failure.name).join('、');
+      new Notice(`部分附件导入失败：${names}`);
+    }
+    if (!records.length) return [];
     const blocks = records.map((record) => this.uploadedFileBlock(record));
     const current = Core.getBlock(this.page, anchorId);
     const replaceEmpty = current && current.type === 'paragraph' && !current.text && !current.children.length;
@@ -7822,16 +8008,36 @@ class BlockspaceView extends ItemView {
   }
 
 
-  showPageMenu(event, meta) {
-    if (event && typeof event.preventDefault === 'function') event.preventDefault();
-    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  // Shared by showPageMenu and showBoardCardMenu, which otherwise differ only
+  // in the status-move items the board adds and in how they dispatch the
+  // triggering event. Kept as a plain Menu builder (no separators/delete) so
+  // each caller stays in control of what comes after.
+  buildPageActionsMenu(meta) {
     const menu = new Menu();
     menu.addItem((item) => item.setTitle('打开').setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
     menu.addItem((item) => item.setTitle('复制页面链接').setIcon('link').onClick(() => {
       const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
       void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
     }));
+    this.addPageHierarchyMenuItems(menu, meta);
     this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
+    return menu;
+  }
+
+  addPageHierarchyMenuItems(menu, meta, { disabled = false } = {}) {
+    menu.addItem((item) => item.setTitle('新建子页面').setIcon('git-branch-plus').setDisabled(disabled).onClick(() => void this.createChildPage(meta.id)));
+    menu.addItem((item) => item.setTitle('移动页面…').setIcon('move').setDisabled(disabled).onClick(() => void this.movePageParent(meta)));
+  }
+
+  currentPageMeta() {
+    if (!this.page) return null;
+    return this.plugin.store.workspace.pages.find((meta) => meta.id === this.page.id) || Core.pageToMeta(this.page);
+  }
+
+  showPageMenu(event, meta) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    const menu = this.buildPageActionsMenu(meta);
     menu.addSeparator();
     menu.addItem((item) => item.setTitle('删除页面').setIcon('trash-2').onClick(() => void this.removePage(meta)));
     menu.showAtMouseEvent(event);
@@ -7848,6 +8054,22 @@ class BlockspaceView extends ItemView {
     if (deletingActivePage) this.setPage(activeId ? await this.plugin.store.loadPage(activeId) : null);
     this.render();
     new Notice('页面已删除');
+    await this.notifyOtherViewsPageRemoved(meta.id, activeId);
+  }
+
+  // Other panes showing the same page have no way to learn it was deleted
+  // here; left alone, their next autosave would fail with an opaque
+  // "page file missing" conflict instead of a clear explanation. flushSave()
+  // first so any unsaved edits in that pane are preserved as a recovery copy
+  // (via the existing conflict-recovery path) rather than silently dropped.
+  async notifyOtherViewsPageRemoved(removedId, activeId) {
+    for (const view of this.plugin.views) {
+      if (view === this || !view.page || view.page.id !== removedId) continue;
+      await view.flushSave().catch(() => undefined);
+      view.setPage(activeId ? await this.plugin.store.loadPage(activeId) : null);
+      view.render();
+      new Notice('当前页面已在其他窗格中被删除');
+    }
   }
 
   insertBlock(indexOrAnchor) {
@@ -7893,13 +8115,7 @@ class BlockspaceView extends ItemView {
   showBoardCardMenu(event, meta) {
     event.preventDefault();
     event.stopPropagation();
-    const menu = new Menu();
-    menu.addItem((item) => item.setTitle('打开').setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
-    menu.addItem((item) => item.setTitle('复制页面链接').setIcon('link').onClick(() => {
-      const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
-      void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
-    }));
-    this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
+    const menu = this.buildPageActionsMenu(meta);
     menu.addSeparator();
     for (const status of Core.PAGE_STATUSES) {
       menu.addItem((item) => item
@@ -8059,9 +8275,9 @@ class BlockspaceView extends ItemView {
     if (typeof this.app.workspace.requestSaveLayout === 'function') this.app.workspace.requestSaveLayout();
   }
 
-  async createPage(status = 'todo') {
+  async createPage(status = 'todo', extras = {}) {
     if (!(await this.flushSave())) return;
-    this.setPage(await this.plugin.store.createPage('Untitled', { status }));
+    this.setPage(await this.plugin.store.createPage('Untitled', { status, ...extras }));
     this.activeTab = 'document';
     this.render();
     const title = this.contentEl.querySelector('.bs-page-title');
@@ -8073,6 +8289,20 @@ class BlockspaceView extends ItemView {
       selection.removeAllRanges();
       selection.addRange(range);
     }
+  }
+
+  async createChildPage(parentId) {
+    await this.createPage('todo', { parentId });
+  }
+
+  async movePageParent(meta) {
+    new PageParentPickerModal(this.app, this.plugin, meta, async (parentId) => {
+      const ok = await this.plugin.store.setPageParent(meta.id, parentId);
+      if (!ok) { new Notice('无法移动页面：目标会形成循环层级'); return; }
+      new Notice(parentId ? '已设置父页面' : '已移出到顶层');
+      this.plugin.notifyContextChanged();
+      this.render();
+    }).open();
   }
 
   scheduleSave() {
@@ -8225,6 +8455,14 @@ class BlockspaceInspectorView extends ItemView {
       target.properties.tags = tags.value.split(/[,，]/).map((value) => value.trim()).filter(Boolean);
     }));
 
+    const parentRow = properties.createDiv({ cls: 'bs-inspector-property' });
+    parentRow.createSpan({ cls: 'bs-inspector-property-label', text: '父页面' });
+    const parentValueWrap = parentRow.createDiv({ cls: 'bs-inspector-parent-value' });
+    const parentMeta = page.parentId ? this.plugin.store.workspace.pages.find((candidate) => candidate.id === page.parentId) : null;
+    parentValueWrap.createSpan({ text: parentMeta ? `${parentMeta.icon || '📄'} ${parentMeta.title}` : '无（顶层页面）' });
+    const parentButton = createButton(parentValueWrap, 'bs-icon-button', '更改父页面', 'move');
+    parentButton.addEventListener('click', () => void view.movePageParent(view.currentPageMeta()));
+
     const outline = this.createSection('大纲', 'list-tree');
     const headings = Core.deriveOutline(page);
     outline.addClass('bs-inspector-outline-tree');
@@ -8361,7 +8599,10 @@ class BlockspaceDiagnosticsModal extends Modal {
       rebuild.disabled = true;
       try {
         const count = await this.plugin.store.rebuildWorkspaceIndex();
-        new Notice(`Blockspace 已重建 ${count} 个页面索引`);
+        const skipped = this.plugin.store.lastIndexRebuildSkipped || [];
+        new Notice(skipped.length
+          ? `Blockspace 已重建 ${count} 个页面索引，跳过了 ${skipped.length} 个无法读取的文件`
+          : `Blockspace 已重建 ${count} 个页面索引`);
         for (const view of this.plugin.views) view.render();
         await this.renderReport();
       } finally {
@@ -8436,6 +8677,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
     // The field only stages a value: migrating on every keystroke would copy the
     // whole data directory once per character.
     let pendingDataFolder = this.plugin.settings.dataFolder;
+
+    new Setting(containerEl).setName('数据与存储').setHeading();
     new Setting(containerEl)
       .setName('数据目录')
       .setDesc('Blockspace 结构化页面存储目录。iOS / iPadOS 对点开头的隐藏目录限制较多，若移动端提示无权限保存，可改为不带点的名字（例如 Blockspace Data）。改好后点“迁移并应用”，原目录会保留为备份，重启插件后生效。')
@@ -8467,17 +8710,51 @@ class BlockspaceSettingTab extends PluginSettingTab {
           }
         }));
     new Setting(containerEl)
-      .setName('Markdown 导出目录')
-      .setDesc('导出页面时保存 Markdown 文件的位置。')
-      .addText((text) => text.setValue(this.plugin.settings.exportFolder).onChange(async (value) => {
-        this.plugin.settings.exportFolder = value.trim() || DEFAULT_SETTINGS.exportFolder;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
       .setName('附件目录')
       .setDesc('粘贴、拖入或上传的图片、视频、音频和文件会写入此 Vault 相对目录。')
       .addText((text) => text.setValue(this.plugin.settings.attachmentFolder || DEFAULT_SETTINGS.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value.trim() || DEFAULT_SETTINGS.attachmentFolder;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('自动保存延迟')
+      .setDesc('停止输入后等待多少毫秒写入页面文件。')
+      .addText((text) => text.setValue(String(this.plugin.settings.autosaveDelay)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.autosaveDelay = Number.isFinite(parsed) ? Math.max(100, Math.min(3000, parsed)) : 350;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('撤销历史条数')
+      .setDesc('每个打开页面在内存中保留的事务历史，范围 20–1000。')
+      .addText((text) => text.setValue(String(this.plugin.settings.historyLimit)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.historyLimit = Number.isFinite(parsed) ? Math.max(20, Math.min(1000, parsed)) : 150;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('每页恢复快照数')
+      .setDesc('保存新修订前保留旧页面快照，范围 1–100。')
+      .addText((text) => text.setValue(String(this.plugin.settings.snapshotLimit)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.snapshotLimit = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 12;
+        await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl)
+      .setName('恢复快照最小间隔')
+      .setDesc('连续保存时至少间隔多少分钟才生成下一份完整快照，范围 1–240。待恢复日志仍会在每次保存前写入。')
+      .addText((text) => text.setValue(String(this.plugin.settings.snapshotIntervalMinutes)).onChange(async (value) => {
+        const parsed = Number(value);
+        this.plugin.settings.snapshotIntervalMinutes = Number.isFinite(parsed) ? Math.max(1, Math.min(240, parsed)) : 5;
+        await this.plugin.saveSettings();
+      }));
+
+    new Setting(containerEl).setName('Markdown 与互操作').setHeading();
+    new Setting(containerEl)
+      .setName('Markdown 导出目录')
+      .setDesc('导出页面时保存 Markdown 文件的位置。')
+      .addText((text) => text.setValue(this.plugin.settings.exportFolder).onChange(async (value) => {
+        this.plugin.settings.exportFolder = value.trim() || DEFAULT_SETTINGS.exportFolder;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
@@ -8564,38 +8841,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
           }
         });
       });
-    new Setting(containerEl)
-      .setName('自动保存延迟')
-      .setDesc('停止输入后等待多少毫秒写入页面文件。')
-      .addText((text) => text.setValue(String(this.plugin.settings.autosaveDelay)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.autosaveDelay = Number.isFinite(parsed) ? Math.max(100, Math.min(3000, parsed)) : 350;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
-      .setName('撤销历史条数')
-      .setDesc('每个打开页面在内存中保留的事务历史，范围 20–1000。')
-      .addText((text) => text.setValue(String(this.plugin.settings.historyLimit)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.historyLimit = Number.isFinite(parsed) ? Math.max(20, Math.min(1000, parsed)) : 150;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
-      .setName('每页恢复快照数')
-      .setDesc('保存新修订前保留旧页面快照，范围 1–100。')
-      .addText((text) => text.setValue(String(this.plugin.settings.snapshotLimit)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.snapshotLimit = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 12;
-        await this.plugin.saveSettings();
-      }));
-    new Setting(containerEl)
-      .setName('恢复快照最小间隔')
-      .setDesc('连续保存时至少间隔多少分钟才生成下一份完整快照，范围 1–240。待恢复日志仍会在每次保存前写入。')
-      .addText((text) => text.setValue(String(this.plugin.settings.snapshotIntervalMinutes)).onChange(async (value) => {
-        const parsed = Number(value);
-        this.plugin.settings.snapshotIntervalMinutes = Number.isFinite(parsed) ? Math.max(1, Math.min(240, parsed)) : 5;
-        await this.plugin.saveSettings();
-      }));
+
+    new Setting(containerEl).setName('外观与布局').setHeading();
     new Setting(containerEl)
       .setName('默认展开页面属性')
       .setDesc('关闭后，状态、优先级和标签会以紧凑摘要显示。')
@@ -8679,6 +8926,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
         await this.plugin.saveSettings();
         for (const view of this.plugin.views) view.render();
       }));
+
+    new Setting(containerEl).setName('工作台行为').setHeading();
     new Setting(containerEl)
       .setName('打开工作台时显示页面检查器')
       .setDesc('在 Obsidian 原生右侧栏中显示属性、大纲、统计和存储状态。')

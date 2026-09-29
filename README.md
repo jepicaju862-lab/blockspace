@@ -2,7 +2,7 @@
 
 **A local-first, Notion-style structured block workspace that lives inside Obsidian.**
 
-[![version](https://img.shields.io/badge/version-0.17.1-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.18.1-blue)](CHANGELOG.md)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.5.0%2B-purple)](https://obsidian.md)
 [![platform](https://img.shields.io/badge/platform-desktop%20%26%20mobile-green)](#requirements)
 [![license](https://img.shields.io/badge/license-GPLv3-lightgrey)](LICENSE)
@@ -95,6 +95,7 @@ Available from the page menu, kanban card menu, right-click menu and the command
 ### Workspace and appearance
 
 - Document view and a status-based kanban board over all pages.
+- Pages can nest under other pages. Create a sub-page or move a page to a different parent from the page menu or the inspector; the quick switcher lists pages as a tree, indented by depth.
 - Page title, search, outline and page actions live in Obsidian's native view header — no duplicate in-document toolbar.
 - Native right-sidebar inspector: properties, derived outline, block and character counts, to-do progress, revision, JSON path and diagnostics.
 - Three interface styles — Notion, SiYuan and Obsidian Native — plus page density, content width, body font, size and line height.
@@ -307,6 +308,7 @@ Blockspace Workspace 为 Obsidian 带来真正的块编辑器。页面正文以�
 ### 工作区与外观
 
 - 文档视图，以及按状态查看全部页面的项目看板。
+- 页面可以嵌套在其他页面之下：在页面菜单或检查器中新建子页面、更改父页面；快速切换器按层级缩进展示所有页面。
 - 页面标题、搜索、大纲与页面操作融入 Obsidian 原生视图标题栏，不再有文档内重复工具栏。
 - 原生右侧栏检查器：页面属性、派生大纲、块数与字符数、待办完成度、修订版本、JSON 路径与诊断入口。
 - 三种界面风格——Notion 风格、思源风格、Obsidian 原生——以及页面密度、正文宽度、字体、字号与行高设置。

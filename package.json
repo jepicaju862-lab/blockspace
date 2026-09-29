@@ -1,0 +1,15 @@
+{
+  "name": "blockspace-workspace",
+  "version": "0.18.1",
+  "description": "A local-first, Notion-style structured block workspace that lives inside Obsidian.",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
+  },
+  "license": "GPL-3.0-or-later",
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "obsidian": "^1.5.0"
+  }
+}
