@@ -2,7 +2,7 @@
 
 **A local-first, Notion-style structured block workspace that lives inside Obsidian.**
 
-[![version](https://img.shields.io/badge/version-0.17.1-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.17.2-blue)](CHANGELOG.md)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.5.0%2B-purple)](https://obsidian.md)
 [![platform](https://img.shields.io/badge/platform-desktop%20%26%20mobile-green)](#requirements)
 [![license](https://img.shields.io/badge/license-GPLv3-lightgrey)](LICENSE)
