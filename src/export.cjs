@@ -1,5 +1,7 @@
 'use strict';
 
+const { t, getLanguage } = require('./i18n.cjs');
+
 const Core = require('./core.cjs');
 
 const LOSSLESS_DATA_START = '<!-- blockspace:page-data:start -->';
@@ -276,14 +278,14 @@ function blockAppearanceStyle(block) {
 function renderPropertyHtml(page) {
   const properties = page.properties;
   const rows = [
-    ['状态', properties.status],
-    ['优先级', properties.priority],
-    ...(properties.tags.length ? [['标签', properties.tags.map((tag) => `#${tag}`).join('  ')]] : []),
-    ...([['来源', properties.source], ['作者', properties.author], ['发布日期', properties.publishedAt], ['说明', properties.description]]
+    [t("status_6320b4a8"), properties.status],
+    [t("priority_565d6460"), properties.priority],
+    ...(properties.tags.length ? [[t("tags_1d0fd5f9"), properties.tags.map((tag) => `#${tag}`).join('  ')]] : []),
+    ...([[t("source_a488e93d"), properties.source], [t("author_7d4146ca"), properties.author], [t("published_87d080e7"), properties.publishedAt], [t("description_4262c45d"), properties.description]]
       .filter((entry) => String(entry[1] || '').trim())),
     ...Core.normalizeCustomProperties(properties.custom).map((property) => [
       property.name,
-      Array.isArray(property.value) ? property.value.join(', ') : property.value === true ? '是' : property.value === false ? '否' : String(property.value ?? ''),
+      Array.isArray(property.value) ? property.value.join(', ') : property.value === true ? t("yes_b5141d3d") : property.value === false ? t("no_0c70665b") : String(property.value ?? ''),
     ]),
   ];
   if (!rows.length) return '';
@@ -346,13 +348,13 @@ function renderHtmlBlock(page, block, options, depth = 0) {
   if (block.type === 'bulleted-list') return frame(`<div class="bs-export-list"><span class="marker">•</span><div>${content}${childHtml()}</div></div>`, 'is-list');
   if (block.type === 'numbered-list') return frame(`<div class="bs-export-list"><span class="marker">${Core.numberedOrdinal(page, block.id)}.</span><div>${content}${childHtml()}</div></div>`, 'is-list');
   if (block.type === 'quote') return frame(`<blockquote>${content}${childHtml()}</blockquote>`, 'is-quote');
-  if (block.type === 'callout') return frame(`<aside class="bs-export-callout"><strong>提示</strong><div>${content}${childHtml()}</div></aside>`, 'is-callout');
-  if (block.type === 'toggle') return frame(`<div class="bs-export-toggle"><strong>${content || '详情'}</strong>${childHtml()}</div>`, 'is-toggle');
+  if (block.type === 'callout') return frame(t("aside_class_bs_export_callout_strong_note_strong_bd4b1808", [content, childHtml()]), 'is-callout');
+  if (block.type === 'toggle') return frame(`<div class="bs-export-toggle"><strong>${content || t("details_979a3329")}</strong>${childHtml()}</div>`, 'is-toggle');
   if (block.type === 'code' || block.type === 'markdown') return frame(`<pre><code>${htmlEscape(block.text)}</code></pre>`, `is-${block.type}`);
   if (block.type === 'divider') return frame('<hr>', 'is-divider');
   if (block.type === 'table-of-contents') {
     const items = Core.deriveOutline(page, block.toc);
-    return frame(`<nav class="bs-export-toc"><strong>目录</strong>${items.map((item) => `<div style="padding-left:${Math.max(0, item.level - block.toc.minLevel) * 18}px">${block.toc.showNumbers && item.numberPath ? `${htmlEscape(item.numberPath)} ` : ''}${htmlEscape(item.title)}</div>`).join('')}</nav>`, 'is-toc');
+    return frame(t("nav_class_bs_export_toc_strong_table_of_contents_3e197dbc", [items.map((item) => `<div style="padding-left:${Math.max(0, item.level - block.toc.minLevel) * 18}px">${block.toc.showNumbers && item.numberPath ? `${htmlEscape(item.numberPath)} ` : ''}${htmlEscape(item.title)}</div>`).join('')]), 'is-toc');
   }
   if (block.type === 'table') {
     const data = Core.normalizeBlockData('table', block.data);
@@ -364,13 +366,13 @@ function renderHtmlBlock(page, block, options, depth = 0) {
     const data = Core.normalizeBlockData('image', block.data);
     const source = exportAssetDataUrl(options, block.id);
     const width = data.widthMode === 'fixed' && data.width ? `width:${Math.min(680, data.width)}px` : data.widthMode === 'full' ? 'width:100%' : 'max-width:100%';
-    const image = source ? `<img src="${source}" alt="${htmlEscape(data.alt || data.caption || block.text)}" style="${width}">` : `<div class="bs-export-media-placeholder">图片：${htmlEscape(data.alt || data.caption || data.path || data.url || '未提供来源')}</div>`;
+    const image = source ? `<img src="${source}" alt="${htmlEscape(data.alt || data.caption || block.text)}" style="${width}">` : t("div_class_bs_export_media_placeholder_image_0_di_1919c3b3", [htmlEscape(data.alt || data.caption || data.path || data.url || t("no_source_provided_65d0ff06"))]);
     const caption = data.caption ? `<figcaption style="text-align:${data.captionAlign};font-size:${data.captionSize === 'small' ? '12px' : '14px'};font-style:${data.captionStyle === 'italic' ? 'italic' : 'normal'};font-weight:${data.captionStyle === 'bold' ? '700' : '400'}">${htmlEscape(data.caption)}</figcaption>` : '';
     return frame(`<figure>${image}${caption}</figure>`, 'is-image');
   }
   if (block.type === 'bookmark') {
     const data = Core.normalizeBlockData('bookmark', block.data);
-    return frame(`<div class="bs-export-bookmark"><a href="${htmlEscape(data.url)}"><strong>${htmlEscape(data.title || data.url || '书签')}</strong></a>${data.description ? `<p>${htmlEscape(data.description)}</p>` : ''}${data.siteName ? `<small>${htmlEscape(data.siteName)}</small>` : ''}</div>`, 'is-bookmark');
+    return frame(`<div class="bs-export-bookmark"><a href="${htmlEscape(data.url)}"><strong>${htmlEscape(data.title || data.url || t("bookmark_94b8975c"))}</strong></a>${data.description ? `<p>${htmlEscape(data.description)}</p>` : ''}${data.siteName ? `<small>${htmlEscape(data.siteName)}</small>` : ''}</div>`, 'is-bookmark');
   }
   if (['video', 'audio', 'attachment'].includes(block.type)) {
     const data = Core.normalizeBlockData(block.type, block.data);
@@ -403,7 +405,7 @@ function htmlDocumentForPage(page, options = {}) {
   const normalized = Core.normalizePage(page);
   const body = renderHtmlBlocks(normalized, normalized.rootBlockIds, options);
   const payload = safeJson(pagePayload(normalized));
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${htmlEscape(normalized.title)}</title><style>${EXPORT_CSS}</style></head><body><main class="bs-export-document"><h1 class="bs-export-title">${htmlEscape(normalized.title)}</h1>${renderPropertyHtml(normalized)}${body}</main><script type="application/vnd.blockspace+json">${payload}</script></body></html>`;
+  return `<!doctype html><html lang="${getLanguage()}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${htmlEscape(normalized.title)}</title><style>${EXPORT_CSS}</style></head><body><main class="bs-export-document"><h1 class="bs-export-title">${htmlEscape(normalized.title)}</h1>${renderPropertyHtml(normalized)}${body}</main><script type="application/vnd.blockspace+json">${payload}</script></body></html>`;
 }
 
 function uint16(value) {
@@ -589,7 +591,7 @@ class DocxBuilder {
   imageParagraph(block) {
     const record = this.addImage(block);
     const data = Core.normalizeBlockData('image', block.data);
-    if (!record) return this.paragraph({ ...block, text: `图片：${data.alt || data.caption || data.path || data.url || '未提供来源'}` });
+    if (!record) return this.paragraph({ ...block, text: t("image_0_c1f23b8d", [data.alt || data.caption || data.path || data.url || t("no_source_provided_65d0ff06")]) });
     const widthPx = Math.max(80, Math.min(620, Number(data.width || record.asset.width || 560)));
     const naturalWidth = Math.max(1, Number(record.asset.width) || widthPx);
     const naturalHeight = Math.max(1, Number(record.asset.height) || Number(data.height) || Math.round(widthPx * 0.625));
@@ -670,12 +672,12 @@ class DocxBuilder {
     if (block.type === 'divider') return wordParagraph('', '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="D7DBE0"/></w:pBdr>');
     if (block.type === 'table-of-contents') {
       const items = Core.deriveOutline(this.page, block.toc);
-      return wordParagraph(wordRun('目录', '<w:b/>')) + items.map((item) => wordParagraph(wordRun(`${block.toc.showNumbers && item.numberPath ? `${item.numberPath} ` : ''}${item.title}`), `<w:ind w:left="${Math.max(0, item.level - block.toc.minLevel) * 360}"/>`)).join('');
+      return wordParagraph(wordRun(t("table_of_contents_52daa71e"), '<w:b/>')) + items.map((item) => wordParagraph(wordRun(`${block.toc.showNumbers && item.numberPath ? `${item.numberPath} ` : ''}${item.title}`), `<w:ind w:left="${Math.max(0, item.level - block.toc.minLevel) * 360}"/>`)).join('');
     }
     if (block.type === 'bookmark') {
       const data = Core.normalizeBlockData('bookmark', block.data);
       const relationshipId = data.url ? this.addHyperlink(data.url) : '';
-      const title = wordRun(data.title || data.url || '书签', '<w:b/><w:color w:val="2563A6"/>');
+      const title = wordRun(data.title || data.url || t("bookmark_94b8975c"), '<w:b/><w:color w:val="2563A6"/>');
       return wordParagraph(relationshipId ? `<w:hyperlink r:id="${relationshipId}">${title}</w:hyperlink>` : title) + (data.description ? wordParagraph(wordRun(data.description, '<w:color w:val="6B7280"/>')) : '');
     }
     if (['video', 'audio', 'attachment'].includes(block.type)) {
@@ -692,10 +694,10 @@ class DocxBuilder {
   propertyTable() {
     const properties = this.page.properties;
     const rows = [
-      ['状态', properties.status], ['优先级', properties.priority],
-      ...(properties.tags.length ? [['标签', properties.tags.map((tag) => `#${tag}`).join('  ')]] : []),
-      ...([['来源', properties.source], ['作者', properties.author], ['发布日期', properties.publishedAt], ['说明', properties.description]].filter((entry) => String(entry[1] || '').trim())),
-      ...Core.normalizeCustomProperties(properties.custom).map((property) => [property.name, Array.isArray(property.value) ? property.value.join(', ') : property.value === true ? '是' : property.value === false ? '否' : String(property.value ?? '')]),
+      [t("status_6320b4a8"), properties.status], [t("priority_565d6460"), properties.priority],
+      ...(properties.tags.length ? [[t("tags_1d0fd5f9"), properties.tags.map((tag) => `#${tag}`).join('  ')]] : []),
+      ...([[t("source_a488e93d"), properties.source], [t("author_7d4146ca"), properties.author], [t("published_87d080e7"), properties.publishedAt], [t("description_4262c45d"), properties.description]].filter((entry) => String(entry[1] || '').trim())),
+      ...Core.normalizeCustomProperties(properties.custom).map((property) => [property.name, Array.isArray(property.value) ? property.value.join(', ') : property.value === true ? t("yes_b5141d3d") : property.value === false ? t("no_0c70665b") : String(property.value ?? '')]),
     ];
     return this.tableXml(rows.map(([label, value]) => `<w:tr>${this.tableCell(wordParagraph(wordRun(label, '<w:color w:val="6B7280"/>')), 1680, { borderless: true })}${this.tableCell(wordParagraph(wordRun(value)), 7680, { borderless: true })}</w:tr>`), [1680, 7680], { borderless: true });
   }
@@ -733,7 +735,7 @@ class DocxBuilder {
 
 function docxStylesXml() {
   const paragraphStyle = (id, name, properties, runProperties = '') => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/>${properties || runProperties ? `<w:pPr>${properties}</w:pPr><w:rPr>${runProperties}</w:rPr>` : ''}</w:style>`;
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="zh-CN" w:eastAsia="zh-CN"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:after="120" w:line="300" w:lineRule="auto"/></w:pPr></w:style>${paragraphStyle('Title', 'Title', '<w:spacing w:before="0" w:after="280"/><w:keepNext/>', '<w:b/><w:sz w:val="52"/><w:szCs w:val="52"/><w:color w:val="202124"/>')}${paragraphStyle('Heading1', 'heading 1', '<w:spacing w:before="320" w:after="160"/><w:outlineLvl w:val="0"/><w:keepNext/>', '<w:b/><w:sz w:val="36"/><w:szCs w:val="36"/><w:color w:val="202124"/>')}${paragraphStyle('Heading2', 'heading 2', '<w:spacing w:before="260" w:after="120"/><w:outlineLvl w:val="1"/><w:keepNext/>', '<w:b/><w:sz w:val="30"/><w:szCs w:val="30"/><w:color w:val="202124"/>')}${paragraphStyle('Heading3', 'heading 3', '<w:spacing w:before="220" w:after="100"/><w:outlineLvl w:val="2"/><w:keepNext/>', '<w:b/><w:sz w:val="26"/><w:szCs w:val="26"/><w:color w:val="343A40"/>')}${paragraphStyle('ListParagraph', 'List Paragraph', '<w:spacing w:after="80"/>')}${paragraphStyle('Quote', 'Quote', '<w:ind w:left="360"/><w:pBdr><w:left w:val="single" w:sz="16" w:space="8" w:color="9AA0A6"/></w:pBdr>', '<w:color w:val="4C5158"/>')}${paragraphStyle('Callout', 'Callout', '<w:ind w:left="240" w:right="240"/><w:shd w:val="clear" w:fill="EEF4FB"/><w:pBdr><w:left w:val="single" w:sz="24" w:space="8" w:color="5B8FC9"/></w:pBdr><w:spacing w:before="80" w:after="80"/>')}${paragraphStyle('Toggle', 'Toggle', '<w:ind w:left="240"/><w:pBdr><w:left w:val="single" w:sz="8" w:space="6" w:color="D5D9DF"/></w:pBdr>', '<w:b/>')}${paragraphStyle('Code', 'Code', '<w:spacing w:after="0" w:line="260" w:lineRule="auto"/><w:shd w:val="clear" w:fill="F4F5F7"/><w:ind w:left="240" w:right="240"/>', '<w:rFonts w:ascii="Cascadia Mono" w:hAnsi="Cascadia Mono" w:eastAsia="Microsoft YaHei"/><w:sz w:val="19"/><w:szCs w:val="19"/>')}${paragraphStyle('Caption', 'Caption', '<w:spacing w:before="80" w:after="160"/>', '<w:color w:val="6B7280"/><w:sz w:val="19"/>')}${paragraphStyle('Attachment', 'Attachment', '<w:ind w:left="240" w:right="240"/><w:shd w:val="clear" w:fill="FAFBFC"/><w:pBdr><w:top w:val="single" w:sz="4" w:color="DFE3E8"/><w:left w:val="single" w:sz="4" w:color="DFE3E8"/><w:bottom w:val="single" w:sz="4" w:color="DFE3E8"/><w:right w:val="single" w:sz="4" w:color="DFE3E8"/></w:pBdr><w:spacing w:before="80" w:after="80"/>')}</w:styles>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Microsoft YaHei"/><w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="${getLanguage() === 'en' ? 'en-US' : 'zh-CN'}" w:eastAsia="zh-CN"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:after="120" w:line="300" w:lineRule="auto"/></w:pPr></w:style>${paragraphStyle('Title', 'Title', '<w:spacing w:before="0" w:after="280"/><w:keepNext/>', '<w:b/><w:sz w:val="52"/><w:szCs w:val="52"/><w:color w:val="202124"/>')}${paragraphStyle('Heading1', 'heading 1', '<w:spacing w:before="320" w:after="160"/><w:outlineLvl w:val="0"/><w:keepNext/>', '<w:b/><w:sz w:val="36"/><w:szCs w:val="36"/><w:color w:val="202124"/>')}${paragraphStyle('Heading2', 'heading 2', '<w:spacing w:before="260" w:after="120"/><w:outlineLvl w:val="1"/><w:keepNext/>', '<w:b/><w:sz w:val="30"/><w:szCs w:val="30"/><w:color w:val="202124"/>')}${paragraphStyle('Heading3', 'heading 3', '<w:spacing w:before="220" w:after="100"/><w:outlineLvl w:val="2"/><w:keepNext/>', '<w:b/><w:sz w:val="26"/><w:szCs w:val="26"/><w:color w:val="343A40"/>')}${paragraphStyle('ListParagraph', 'List Paragraph', '<w:spacing w:after="80"/>')}${paragraphStyle('Quote', 'Quote', '<w:ind w:left="360"/><w:pBdr><w:left w:val="single" w:sz="16" w:space="8" w:color="9AA0A6"/></w:pBdr>', '<w:color w:val="4C5158"/>')}${paragraphStyle('Callout', 'Callout', '<w:ind w:left="240" w:right="240"/><w:shd w:val="clear" w:fill="EEF4FB"/><w:pBdr><w:left w:val="single" w:sz="24" w:space="8" w:color="5B8FC9"/></w:pBdr><w:spacing w:before="80" w:after="80"/>')}${paragraphStyle('Toggle', 'Toggle', '<w:ind w:left="240"/><w:pBdr><w:left w:val="single" w:sz="8" w:space="6" w:color="D5D9DF"/></w:pBdr>', '<w:b/>')}${paragraphStyle('Code', 'Code', '<w:spacing w:after="0" w:line="260" w:lineRule="auto"/><w:shd w:val="clear" w:fill="F4F5F7"/><w:ind w:left="240" w:right="240"/>', '<w:rFonts w:ascii="Cascadia Mono" w:hAnsi="Cascadia Mono" w:eastAsia="Microsoft YaHei"/><w:sz w:val="19"/><w:szCs w:val="19"/>')}${paragraphStyle('Caption', 'Caption', '<w:spacing w:before="80" w:after="160"/>', '<w:color w:val="6B7280"/><w:sz w:val="19"/>')}${paragraphStyle('Attachment', 'Attachment', '<w:ind w:left="240" w:right="240"/><w:shd w:val="clear" w:fill="FAFBFC"/><w:pBdr><w:top w:val="single" w:sz="4" w:color="DFE3E8"/><w:left w:val="single" w:sz="4" w:color="DFE3E8"/><w:bottom w:val="single" w:sz="4" w:color="DFE3E8"/><w:right w:val="single" w:sz="4" w:color="DFE3E8"/></w:pBdr><w:spacing w:before="80" w:after="80"/>')}</w:styles>`;
 }
 
 function docxNumberingXml() {
@@ -758,7 +760,7 @@ function canvasToJpegBytes(canvas, quality = 0.92) {
     if (typeof canvas.toBlob === 'function') {
       canvas.toBlob(async (blob) => {
         if (!blob) {
-          reject(new Error('无法生成 PDF 页面图像'));
+          reject(new Error(t("could_not_generate_pdf_page_image_8b6204e3")));
           return;
         }
         resolve(new Uint8Array(await blob.arrayBuffer()));
@@ -840,7 +842,7 @@ function prepareRasterPagination(documentRef, pageHeight = A4_HEIGHT_PX) {
 }
 
 async function renderHtmlToJpegPages(html, ownerDocument, options = {}) {
-  if (!ownerDocument || !ownerDocument.body) throw new Error('当前环境无法创建 PDF 打印画布');
+  if (!ownerDocument || !ownerDocument.body) throw new Error(t("this_environment_cannot_create_a_pdf_print_canva_f2341a00"));
   const frame = ownerDocument.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
   frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${A4_WIDTH_PX}px;height:${A4_HEIGHT_PX}px;border:0;opacity:0;pointer-events:none;z-index:-1`;
@@ -850,7 +852,7 @@ async function renderHtmlToJpegPages(html, ownerDocument, options = {}) {
     frame.srcdoc = String(html || '');
     await waitWithin(loaded, 5000, undefined);
     const frameDocument = frame.contentDocument;
-    if (!frameDocument) throw new Error('无法初始化 PDF 打印文档');
+    if (!frameDocument) throw new Error(t("could_not_initialize_the_pdf_print_document_e19cf904"));
     await waitForFrameImages(frameDocument);
     if (frameDocument.fonts && frameDocument.fonts.ready) {
       await waitWithin(frameDocument.fonts.ready.catch(() => undefined), 5000, undefined);
@@ -861,7 +863,7 @@ async function renderHtmlToJpegPages(html, ownerDocument, options = {}) {
     const totalHeight = prepareRasterPagination(frameDocument, A4_HEIGHT_PX);
     const pageCount = Math.max(1, Math.ceil(totalHeight / A4_HEIGHT_PX));
     const root = frameDocument.querySelector('.bs-export-document');
-    if (!root) throw new Error('PDF 打印文档缺少正文');
+    if (!root) throw new Error(t("pdf_print_document_has_no_body_6ff6f699"));
     const rootMarkup = root.outerHTML;
     const scale = Math.max(1, Math.min(3, Number(options.scale) || 2));
     const pages = [];
@@ -878,11 +880,11 @@ async function renderHtmlToJpegPages(html, ownerDocument, options = {}) {
         image.decoding = 'sync';
         const imageLoaded = new Promise((resolve, reject) => {
           image.onload = resolve;
-          image.onerror = () => reject(new Error('PDF 页面图像解码失败'));
+          image.onerror = () => reject(new Error(t("could_not_decode_pdf_page_image_676ba727")));
         });
         image.src = url;
         const decoded = typeof image.decode === 'function' ? image.decode().catch(() => imageLoaded) : imageLoaded;
-        await waitWithin(decoded, 15000, undefined, 'PDF 页面图像渲染超时');
+        await waitWithin(decoded, 15000, undefined, t("pdf_page_image_rendering_timed_out_66bb6fc1"));
         const canvas = ownerDocument.createElement('canvas');
         canvas.width = Math.round(A4_WIDTH_PX * scale);
         canvas.height = Math.round(A4_HEIGHT_PX * scale);
@@ -896,7 +898,7 @@ async function renderHtmlToJpegPages(html, ownerDocument, options = {}) {
             canvasToJpegBytes(canvas, Number(options.quality) || 0.93),
             15000,
             undefined,
-            'PDF 页面编码超时',
+            t("pdf_page_encoding_timed_out_7739e284"),
           ),
           width: canvas.width,
           height: canvas.height,
@@ -938,7 +940,7 @@ function canvasFont(style) {
 
 class CanvasPageRenderer {
   constructor(page, ownerDocument, options = {}) {
-    if (!ownerDocument || typeof ownerDocument.createElement !== 'function') throw new Error('当前环境无法创建 PDF 画布');
+    if (!ownerDocument || typeof ownerDocument.createElement !== 'function') throw new Error(t("this_environment_cannot_create_a_pdf_canvas_6339a62d"));
     this.page = Core.normalizePage(page);
     this.map = Core.blockMap(this.page);
     this.document = ownerDocument;
@@ -962,7 +964,7 @@ class CanvasPageRenderer {
     canvas.width = Math.round(A4_WIDTH_PX * this.scale);
     canvas.height = Math.round(A4_HEIGHT_PX * this.scale);
     const context = canvas.getContext('2d');
-    if (!context) throw new Error('当前环境无法初始化 PDF 画布');
+    if (!context) throw new Error(t("this_environment_cannot_initialize_a_pdf_canvas_eaa18c52"));
     context.scale(this.scale, this.scale);
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, A4_WIDTH_PX, A4_HEIGHT_PX);
@@ -1112,10 +1114,10 @@ class CanvasPageRenderer {
         const image = new ImageType();
         const loaded = new Promise((resolve, reject) => {
           image.onload = resolve;
-          image.onerror = () => reject(new Error('图片解码失败'));
+          image.onerror = () => reject(new Error(t("could_not_decode_image_a3a188b7")));
         });
         image.src = source;
-        await waitWithin(typeof image.decode === 'function' ? image.decode().catch(() => loaded) : loaded, 10000, undefined, '图片解码超时');
+        await waitWithin(typeof image.decode === 'function' ? image.decode().catch(() => loaded) : loaded, 10000, undefined, t("image_decoding_timed_out_c9040656"));
         this.images.set(block.id, image);
       } catch (_error) {
         // Unsupported images remain labelled placeholders; the lossless attachment still preserves their metadata.
@@ -1144,7 +1146,7 @@ class CanvasPageRenderer {
       this.context.strokeStyle = '#cfd4dc';
       this.context.strokeRect(x, y, size.width, size.height);
       this.applyFont({ size: 13, family: CANVAS_FONT_FAMILY, bold: false, italic: false, color: '#68707c' });
-      this.context.fillText(String(data.alt || data.caption || data.path || data.url || '图片').slice(0, 50), x + 12, y + 12);
+      this.context.fillText(String(data.alt || data.caption || data.path || data.url || t("image_d24c10d3")).slice(0, 50), x + 12, y + 12);
     }
     return data;
   }
@@ -1289,7 +1291,7 @@ class CanvasPageRenderer {
     else if (block.type === 'columns') this.drawColumns(block, bounds);
     else if (block.type === 'image') this.drawImage(block, bounds);
     else if (block.type === 'table-of-contents') {
-      this.plain('目录', bounds, { bold: true, size: 17, bottomGap: 4 });
+      this.plain(t("table_of_contents_52daa71e"), bounds, { bold: true, size: 17, bottomGap: 4 });
       for (const item of Core.deriveOutline(this.page, block.toc)) {
         const indent = Math.max(0, item.level - block.toc.minLevel) * 18;
         this.plain(`${block.toc.showNumbers && item.numberPath ? `${item.numberPath} ` : ''}${item.title}`, { x: bounds.x + indent, width: bounds.width - indent }, { size: 14, lineHeight: 22, bottomGap: 1 });
@@ -1297,7 +1299,7 @@ class CanvasPageRenderer {
       this.y += 7;
     } else if (block.type === 'bookmark') {
       const data = Core.normalizeBlockData('bookmark', block.data);
-      this.plain(data.title || data.url || '书签', bounds, { bold: true, background: '#f6f7f9', bottomGap: 2 });
+      this.plain(data.title || data.url || t("bookmark_94b8975c"), bounds, { bold: true, background: '#f6f7f9', bottomGap: 2 });
       if (data.description) this.plain(data.description, bounds, { size: 13, background: '#f6f7f9', color: '#68707c', bottomGap: 6 });
     } else if (['video', 'audio', 'attachment'].includes(block.type)) {
       const data = Core.normalizeBlockData(block.type, block.data);
@@ -1330,10 +1332,10 @@ class CanvasPageRenderer {
   drawProperties(bounds) {
     const properties = this.page.properties;
     const rows = [
-      ['状态', properties.status], ['优先级', properties.priority],
-      ...(properties.tags.length ? [['标签', properties.tags.map((tag) => `#${tag}`).join('  ')]] : []),
-      ...([['来源', properties.source], ['作者', properties.author], ['发布日期', properties.publishedAt], ['说明', properties.description]].filter((entry) => String(entry[1] || '').trim())),
-      ...Core.normalizeCustomProperties(properties.custom).map((property) => [property.name, Array.isArray(property.value) ? property.value.join(', ') : property.value === true ? '是' : property.value === false ? '否' : String(property.value ?? '')]),
+      [t("status_6320b4a8"), properties.status], [t("priority_565d6460"), properties.priority],
+      ...(properties.tags.length ? [[t("tags_1d0fd5f9"), properties.tags.map((tag) => `#${tag}`).join('  ')]] : []),
+      ...([[t("source_a488e93d"), properties.source], [t("author_7d4146ca"), properties.author], [t("published_87d080e7"), properties.publishedAt], [t("description_4262c45d"), properties.description]].filter((entry) => String(entry[1] || '').trim())),
+      ...Core.normalizeCustomProperties(properties.custom).map((property) => [property.name, Array.isArray(property.value) ? property.value.join(', ') : property.value === true ? t("yes_b5141d3d") : property.value === false ? t("no_0c70665b") : String(property.value ?? '')]),
     ];
     if (!rows.length) return;
     for (const [label, value] of rows) {
@@ -1355,7 +1357,7 @@ class CanvasPageRenderer {
     const output = [];
     for (const canvas of this.pages) {
       output.push({
-        bytes: await waitWithin(canvasToJpegBytes(canvas, this.quality), 15000, undefined, 'PDF 页面编码超时'),
+        bytes: await waitWithin(canvasToJpegBytes(canvas, this.quality), 15000, undefined, t("pdf_page_encoding_timed_out_7739e284")),
         width: canvas.width,
         height: canvas.height,
       });
@@ -1412,7 +1414,7 @@ function pdfStream(dictionary, bytes) {
 
 function pdfFromJpegPages(inputPages, page, options = {}) {
   const pages = Array.from(inputPages || []).filter((item) => item && item.bytes && item.bytes.length);
-  if (!pages.length) throw new Error('PDF 至少需要一页图像');
+  if (!pages.length) throw new Error(t("pdf_requires_at_least_one_page_image_2d423e4c"));
   const normalized = Core.normalizePage(page);
   const objects = [null];
   const reserve = () => { objects.push(null); return objects.length - 1; };
@@ -1450,7 +1452,7 @@ function pdfFromJpegPages(inputPages, page, options = {}) {
   set(embeddedFileId, pdfStream(`/Type /EmbeddedFile /Subtype /application#2Fjson /Params << /Size ${attachmentBytes.length} /ModDate (${pdfDate(normalized.updatedAt)}) >>`, attachmentBytes));
   set(fileSpecId, `<< /Type /Filespec /F (blockspace-page.json) /UF ${pdfUtf16Hex('blockspace-page.json')} /Desc ${pdfUtf16Hex('Blockspace lossless page data')} /EF << /F ${embeddedFileId} 0 R /UF ${embeddedFileId} 0 R >> /AFRelationship /Data >>`);
   set(pagesId, `<< /Type /Pages /Count ${pageIds.length} /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] >>`);
-  set(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R /Lang (zh-CN) /MarkInfo << /Marked true >> /Names << /EmbeddedFiles << /Names [(blockspace-page.json) ${fileSpecId} 0 R] >> >> /AF [${fileSpecId} 0 R] /ViewerPreferences << /DisplayDocTitle true >> >>`);
+  set(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R /Lang (${getLanguage() === 'en' ? 'en-US' : 'zh-CN'}) /MarkInfo << /Marked true >> /Names << /EmbeddedFiles << /Names [(blockspace-page.json) ${fileSpecId} 0 R] >> >> /AF [${fileSpecId} 0 R] /ViewerPreferences << /DisplayDocTitle true >> >>`);
   set(infoId, `<< /Title ${pdfUtf16Hex(normalized.title)} /Author ${pdfUtf16Hex('Blockspace Workspace')} /Subject ${pdfUtf16Hex('Lossless Blockspace PDF export')} /Keywords ${pdfUtf16Hex(['Blockspace', ...normalized.properties.tags].join('; '))} /Creator (Blockspace Workspace) /Producer (Blockspace Workspace PDF exporter) /CreationDate (${pdfDate()}) /ModDate (${pdfDate(normalized.updatedAt)}) >>`);
   const header = concatBytes(utf8Bytes('%PDF-1.7\n%'), new Uint8Array([0xe2, 0xe3, 0xcf, 0xd3]), utf8Bytes('\n'));
   const body = [header];

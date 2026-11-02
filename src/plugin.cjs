@@ -1,5 +1,7 @@
 'use strict';
 
+const { t, setLanguage, normalizeLanguage } = require('./i18n.cjs');
+
 const Core = require('./core.cjs');
 const Exporters = require('./export.cjs');
 const {
@@ -22,6 +24,7 @@ const {
 const VIEW_TYPE = 'blockspace-workspace-view';
 const INSPECTOR_VIEW_TYPE = 'blockspace-inspector-view';
 const DEFAULT_SETTINGS = {
+  language: 'en',
   dataFolder: '.blockspace',
   exportFolder: 'Blockspace Exports',
   markdownBridgeEnabled: true,
@@ -56,29 +59,7 @@ const FIND_INPUT_DEBOUNCE_MS = 70;
 const MAX_FIND_MATCHES = 10000;
 const MAX_FIND_HIGHLIGHTS = 240;
 
-const SLASH_COMMANDS = [
-  { type: 'paragraph', label: '文本', description: '普通文本块', icon: 'pilcrow', category: '基础', aliases: ['text', 'p', '正文'] },
-  { type: 'heading-1', label: '一级标题', description: '页面大标题', icon: 'heading-1', category: '基础', aliases: ['h1', '标题1'] },
-  { type: 'heading-2', label: '二级标题', description: '章节标题', icon: 'heading-2', category: '基础', aliases: ['h2', '标题2'] },
-  { type: 'heading-3', label: '三级标题', description: '小节标题', icon: 'heading-3', category: '基础', aliases: ['h3', '标题3'] },
-  { type: 'todo', label: '待办事项', description: '可勾选任务', icon: 'square-check-big', category: '列表', aliases: ['todo', 'task', '待办'] },
-  { type: 'bulleted-list', label: '无序列表', description: '项目符号列表', icon: 'list', category: '列表', aliases: ['ul', 'bullet', '列表'] },
-  { type: 'numbered-list', label: '有序列表', description: '编号列表', icon: 'list-ordered', category: '列表', aliases: ['ol', 'number', '编号'] },
-  { type: 'quote', label: '引用', description: '引用内容', icon: 'quote', category: '强调', aliases: ['quote', '引用'] },
-  { type: 'callout', label: '提示块', description: '可容纳子块的强调容器', icon: 'message-square-text', category: '强调', aliases: ['callout', 'note', '提示'] },
-  { type: 'toggle', label: '折叠块', description: '可展开和收起子内容', icon: 'chevron-right-square', category: '高级', aliases: ['toggle', '折叠', '展开'] },
-  { type: 'table-of-contents', label: '目录', description: '根据标题块自动生成页面目录', icon: 'list-tree', category: '高级', aliases: ['toc', '目录', '大纲'] },
-  { type: 'image', label: '图片', description: '粘贴、上传或引用 Vault 图片', icon: 'image', category: '媒体', aliases: ['image', 'img', '图片', '照片'] },
-  { type: 'video', label: '视频', description: '上传或引用视频文件', icon: 'video', category: '媒体', aliases: ['video', '视频'] },
-  { type: 'audio', label: '音频', description: '上传或引用音频文件', icon: 'audio-lines', category: '媒体', aliases: ['audio', '音频'] },
-  { type: 'attachment', label: '附件', description: '上传 PDF 或其他 Vault 文件', icon: 'paperclip', category: '媒体', aliases: ['file', 'attachment', '附件', '文件', 'pdf'] },
-  { type: 'bookmark', label: '书签', description: '创建可编辑的链接预览卡片', icon: 'bookmark', category: '媒体', aliases: ['bookmark', 'url', 'link', '书签', '链接卡片'] },
-  { type: 'table', label: '表格', description: '可直接编辑并导出为原生 Markdown 表格', icon: 'table-2', category: '高级', aliases: ['table', '表格'] },
-  { type: 'columns', label: '分栏', description: '两栏或三栏并排编辑，窄窗口自动上下排列', icon: 'columns-3', category: '高级', aliases: ['columns', 'column', '分栏', '双栏', '三栏'] },
-  { type: 'markdown', label: '原生 Markdown', description: '使用 Obsidian 渲染器显示原始 Markdown', icon: 'file-code-2', category: '高级', aliases: ['markdown', 'md', '原生 markdown'] },
-  { type: 'code', label: '代码块', description: '等宽代码内容', icon: 'code-2', category: '高级', aliases: ['code', '代码'] },
-  { type: 'divider', label: '分隔线', description: '分隔内容', icon: 'minus', category: '高级', aliases: ['divider', 'hr', '分割线'] },
-];
+let SLASH_COMMANDS;
 
 const COLUMN_RATIO_TEMPLATES = Object.freeze({
   '1:1': 'minmax(0, 1fr) minmax(0, 1fr)',
@@ -91,45 +72,17 @@ const COLUMN_RATIO_TEMPLATES = Object.freeze({
 });
 
 
-const STATUS_LABELS = { todo: '待开始', doing: '进行中', done: '已完成' };
-const PRIORITY_LABELS = { low: '低', medium: '中', high: '高' };
+let STATUS_LABELS;
+let PRIORITY_LABELS;
 const ICON_OPTIONS = ['✨', '📄', '🚀', '💡', '📌', '🎯', '🧠', '🛠️'];
 const STYLE_COLORS = ['default', 'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'];
-const STYLE_COLOR_LABELS = {
-  default: '默认', gray: '灰色', brown: '棕色', orange: '橙色', yellow: '黄色',
-  green: '绿色', blue: '蓝色', purple: '紫色', pink: '粉色', red: '红色',
-};
-const FONT_FAMILIES = {
-  theme: '跟随 Obsidian', sans: '无衬线', serif: '衬线', monospace: '等宽',
-};
-const VISUAL_STYLES = {
-  notion: 'Notion 风格',
-  siyuan: '思源风格',
-  native: 'Obsidian 原生',
-};
-const PAGE_DENSITIES = {
-  compact: '紧凑',
-  standard: '标准',
-  immersive: '沉浸',
-};
-const CUSTOM_PROPERTY_TYPE_DETAILS = {
-  text: { label: '文本', icon: 'text' },
-  list: { label: '列表', icon: 'list' },
-  number: { label: '数字', icon: 'hash' },
-  checkbox: { label: '复选框', icon: 'square-check' },
-  date: { label: '日期', icon: 'calendar-days' },
-  datetime: { label: '日期与时间', icon: 'calendar-clock' },
-};
-const MARKDOWN_RENDER_MODES = {
-  'reading-only': '仅原生阅读模式',
-  'native-blocks': '未聚焦块使用原生渲染',
-  off: '关闭原生 Markdown 渲染',
-};
-const MARKDOWN_BLOCK_ID_MODES = {
-  none: '不导出（阅读优先）',
-  referenced: '仅被引用块（推荐）',
-  all: '全部可定位块（兼容模式）',
-};
+let STYLE_COLOR_LABELS;
+let FONT_FAMILIES;
+let VISUAL_STYLES;
+let PAGE_DENSITIES;
+let CUSTOM_PROPERTY_TYPE_DETAILS;
+let MARKDOWN_RENDER_MODES;
+let MARKDOWN_BLOCK_ID_MODES;
 const MARKDOWN_ANCHORABLE_BLOCK_TYPES = new Set([
   'paragraph',
   'heading-1',
@@ -242,22 +195,9 @@ function extraPropertyFrontmatter(properties) {
   return lines;
 }
 
-const SAVE_STATE_LABELS = {
-  saved: '已保存',
-  dirty: '等待保存',
-  saving: '正在保存…',
-  conflict: '存在保存冲突',
-  error: '保存失败',
-};
+let SAVE_STATE_LABELS;
 
-const ADVANCED_BLOCK_LABELS = {
-  image: { label: '图片', icon: 'image' },
-  video: { label: '视频', icon: 'video' },
-  audio: { label: '音频', icon: 'audio-lines' },
-  attachment: { label: '附件', icon: 'paperclip' },
-  bookmark: { label: '书签', icon: 'bookmark' },
-  table: { label: '表格', icon: 'table-2' },
-};
+let ADVANCED_BLOCK_LABELS;
 
 function fileExtension(value) {
   return ((String(value || '').toLowerCase().match(/\.([a-z0-9]{2,8})(?:[?#].*)?$/) || [])[1] || '');
@@ -626,7 +566,7 @@ function renderInlineContent(editor, block) {
         else if (reference.kind === 'blockspace-page') span.classList.add('bs-inline-page-reference');
         else if (reference.kind === 'obsidian') span.classList.add('bs-inline-obsidian-reference');
         if (reference.mode === 'embed') span.classList.add('is-embed-reference');
-        span.title = 'Ctrl/Cmd + 悬停预览 · Ctrl/Cmd + 点击打开';
+        span.title = t("ctrl_cmd_hover_to_preview_ctrl_cmd_click_to_open_5da46b8d");
       } else if (mark.type === 'textColor') span.dataset.bsTextColor = mark.value;
       else if (mark.type === 'highlight') span.dataset.bsHighlight = mark.value;
     }
@@ -719,7 +659,8 @@ function fuzzySubsequenceScore(text, query) {
 
 function scoreSlashCommand(command, query) {
   if (!query) return 1;
-  const fields = [command.label, command.type, command.description, ...(command.aliases || [])];
+  const fields = [command.label, command.type, command.description, ...(command.aliases || []),
+    ...(command.searchTerms || [])];
   return Math.max(...fields.map((field) => fuzzySubsequenceScore(field, query)));
 }
 
@@ -746,7 +687,7 @@ function rangeMarkState(block, from, to, type) {
 
 function truncateBlockLabel(block) {
   const value = String(block && block.text || '').replace(/\s+/g, ' ').trim();
-  if (!value) return '空块';
+  if (!value) return t("empty_block_fb8e593d");
   return value.length > 28 ? `${value.slice(0, 28)}…` : value;
 }
 
@@ -773,7 +714,7 @@ async function ensureAdapterFolder(vault, path, locks) {
             // have permission to save") gives no way to tell a locked vault
             // apart from a dot-folder the mobile file layer refuses to create.
             const detail = error && error.message ? error.message : String(error);
-            throw new Error(`无法创建目录 ${folderPath}：${detail}`);
+            throw new Error(t("could_not_create_folder_0_1_2df7c970", [folderPath, detail]));
           }
         }
       })().finally(() => {
@@ -847,7 +788,7 @@ class BlockspaceStore {
       return JSON.parse(await adapter.read(path));
     } catch (error) {
       console.error('Blockspace: unable to read JSON', path, error);
-      if (!options.silent) new Notice(`Blockspace 无法读取 ${path}`);
+      if (!options.silent) new Notice(t("blockspace_could_not_read_0_83c08f01", [path]));
       return fallback;
     }
   }
@@ -893,7 +834,7 @@ class BlockspaceStore {
           console.error('Blockspace: atomic write rollback failed', rollbackError);
         }
         if (error && error.message && !String(error.message).includes(path)) {
-          throw new Error(`无法写入 ${path}：${error.message}`);
+          throw new Error(t("could_not_write_0_1_8b53e0ad", [path, error.message]));
         }
         throw error;
       }
@@ -989,10 +930,10 @@ class BlockspaceStore {
           this.workspace.activePageId = page.id;
           await this.saveWorkspace();
         } else if (recovered > 0) {
-          new Notice(`Blockspace 已恢复 ${recovered} 个未完成保存`);
+          new Notice(t("blockspace_recovered_0_unfinished_saves_6d12cdc0", [recovered]));
         }
         if (this.lastJournalRecovery.conflicts > 0) {
-          new Notice(`Blockspace 发现 ${this.lastJournalRecovery.conflicts} 个恢复冲突，已保留副本`);
+          new Notice(t("blockspace_found_0_recovery_conflicts_copies_wer_d6d86485", [this.lastJournalRecovery.conflicts]));
         }
         await this.rebuildReferenceIndex();
         this.initialized = true;
@@ -1020,15 +961,15 @@ class BlockspaceStore {
   async migrateDataFolder(nextFolder) {
     const target = normalizePath(String(nextFolder || '').trim());
     const source = this.folder;
-    if (!target) throw new Error('数据目录不能为空');
+    if (!target) throw new Error(t("data_folder_cannot_be_empty_aa5ab19e"));
     if (target === source) return { moved: 0, target, source };
     if (target.startsWith(`${source}/`) || source.startsWith(`${target}/`)) {
-      throw new Error('新数据目录不能与原目录互相嵌套');
+      throw new Error(t("the_new_and_existing_data_folders_cannot_contain_28dd7795"));
     }
     await this.init();
     await this.flush();
     if ((await this.listFilesRecursive(target)).length) {
-      throw new Error(`目标目录 ${target} 已有内容，请换一个名字或先清空`);
+      throw new Error(t("destination_0_is_not_empty_choose_another_folder_0a102a28", [target]));
     }
     const adapter = this.app.vault.adapter;
     const files = await this.listFilesRecursive(source);
@@ -1401,13 +1342,13 @@ class BlockspaceStore {
       normalized.updatedAt = Core.nowIso();
     }
     const issues = Core.validatePage(normalized);
-    if (issues.length) throw new Error(`页面完整性校验失败：${issues.join('；')}`);
+    if (issues.length) throw new Error(t("page_integrity_check_failed_0_428e82a8", [issues.join('；')]));
     await this.ensureFolder(this.pagesFolder);
     const target = this.pagePath(normalized.id);
     const disk = await this.readJson(target, null, { silent: true });
     if (expectedRevision !== null && (!disk || Number(disk.revision) !== expectedRevision)) {
       const conflictPath = await this.writeConflict(normalized, disk, expectedRevision);
-      throw new ConflictError(disk ? '页面已在其他窗口或设备中修改' : '页面文件已被删除或无法读取', {
+      throw new ConflictError(disk ? t("page_was_modified_in_another_window_or_on_anothe_be39d8f6") : t("page_file_was_deleted_or_could_not_be_read_81612ac0"), {
         expectedRevision,
         actualRevision: disk ? (Number(disk.revision) || 1) : null,
         conflictPath,
@@ -1445,7 +1386,7 @@ class BlockspaceStore {
     return normalized;
   }
 
-  async createPage(title = 'Untitled', extras = {}) {
+  async createPage(title = t('untitled'), extras = {}) {
     const page = Core.createDefaultPage(title);
     page.icon = extras.icon || '📄';
     page.cover = extras.cover || 'none';
@@ -1489,7 +1430,7 @@ class BlockspaceStore {
       this.workspace.activePageId = this.workspace.pages[0] ? this.workspace.pages[0].id : null;
     }
     if (this.workspace.pages.length === 0) {
-      const page = await this.createPage('Untitled');
+      const page = await this.createPage(t('untitled'));
       this.workspace.activePageId = page.id;
       replacementPageId = page.id;
     } else {
@@ -1517,7 +1458,7 @@ class BlockspaceStore {
       const replacementRaw = await this.readJson(replacementPath, null, { silent: true });
       const replacement = replacementRaw ? Core.normalizePage(replacementRaw) : null;
       const isPristineReplacement = replacement
-        && replacement.title === 'Untitled'
+        && replacement.title === t('untitled')
         && replacement.blocks.every((block) => !String(block.text || '').trim());
       if (isPristineReplacement) {
         await this.removePath(replacementPath);
@@ -1526,7 +1467,7 @@ class BlockspaceStore {
     }
     const target = this.pagePath(page.id);
     if (await this.app.vault.adapter.exists(target)) {
-      return this.restorePageAsCopy(page, '（删除恢复）');
+      return this.restorePageAsCopy(page, t("restored_deletion_3313c5d6"));
     }
     await this.atomicWrite(target, `${JSON.stringify(page, null, 2)}\n`);
     if (deletion.trashPath) await this.removePath(deletion.trashPath);
@@ -1590,20 +1531,20 @@ class BlockspaceStore {
   }
 
   async restoreLatestTrash() {
-    return this.restoreLatestFromFiles(await this.listFilesRecursive(this.trashFolder), (payload) => payload, '（回收站恢复）');
+    return this.restoreLatestFromFiles(await this.listFilesRecursive(this.trashFolder), (payload) => payload, t("restored_from_trash_1765a56b"));
   }
 
   async restoreLatestSnapshot(pageId) {
     if (!pageId) return null;
     const folder = normalizePath(`${this.snapshotsFolder}/${pageId}`);
-    return this.restoreLatestFromFiles(await this.listFilesRecursive(folder), (payload) => payload, '（快照恢复）');
+    return this.restoreLatestFromFiles(await this.listFilesRecursive(folder), (payload) => payload, t("restored_snapshot_9b55d283"));
   }
 
   async restoreLatestConflict() {
     return this.restoreLatestFromFiles(
       await this.listFilesRecursive(this.recoveryFolder),
       (payload) => payload.localPage || (payload.page && payload.page.id ? payload.page : null),
-      '（冲突恢复）',
+      t("restored_conflict_6f42f843"),
     );
   }
 
@@ -1611,7 +1552,7 @@ class BlockspaceStore {
     if (!path) return null;
     const payload = await this.readJson(path, null, { silent: true });
     const page = payload && (payload.localPage || (payload.page && payload.page.id ? payload.page : null));
-    return page ? this.restorePageAsCopy(page, '（冲突恢复）') : null;
+    return page ? this.restorePageAsCopy(page, t("restored_conflict_6f42f843")) : null;
   }
 
   async diagnose() {
@@ -1630,18 +1571,18 @@ class BlockspaceStore {
     };
     const journals = await this.listFiles(this.journalFolder);
     report.pendingJournals = journals.filter((path) => path.endsWith('.pending.json')).length;
-    if (report.pendingJournals) report.warnings.push(`存在 ${report.pendingJournals} 个待恢复日志`);
+    if (report.pendingJournals) report.warnings.push(t("0_recovery_journals_are_pending_347fcae6", [report.pendingJournals]));
     for (const meta of this.workspace.pages) {
       const raw = await this.readJson(this.pagePath(meta.id), null, { silent: true });
       if (!raw) {
-        report.errors.push(`页面文件缺失：${meta.title} (${meta.id})`);
+        report.errors.push(t("missing_page_file_0_1_d796e87b", [meta.title, meta.id]));
         continue;
       }
       report.pages += 1;
       const issues = Core.validatePage(raw);
       for (const issue of issues) report.errors.push(`${meta.title}：${issue}`);
       if (Number(raw.formatVersion || raw.version || 1) < Core.DATA_VERSION) {
-        report.warnings.push(`${meta.title} 使用旧数据格式，将在下次保存时升级`);
+        report.warnings.push(t("0_uses_an_older_data_format_and_will_be_upgraded_8873621b", [meta.title]));
       }
     }
     const pageFiles = (await this.listFiles(this.pagesFolder)).filter((path) => path.endsWith('.json'));
@@ -1649,7 +1590,7 @@ class BlockspaceStore {
     const diskIds = new Set(pageFiles.map((path) => path.split('/').pop().replace(/\.json$/, '')));
     report.orphanPages = Array.from(diskIds).filter((id) => !indexedIds.has(id)).length;
     report.missingIndexedPages = Array.from(indexedIds).filter((id) => !diskIds.has(id)).length;
-    if (report.orphanPages) report.warnings.push(`存在 ${report.orphanPages} 个尚未进入索引的页面文件`);
+    if (report.orphanPages) report.warnings.push(t("0_page_files_have_not_been_indexed_a9843e3a", [report.orphanPages]));
     report.snapshots = (await this.listFilesRecursive(this.snapshotsFolder)).filter((path) => path.endsWith('.json')).length;
     report.recoveryFiles = (await this.listFilesRecursive(this.recoveryFolder)).filter((path) => path.endsWith('.json')).length;
     report.trashFiles = (await this.listFilesRecursive(this.trashFolder)).filter((path) => path.endsWith('.json')).length;
@@ -1665,7 +1606,7 @@ class MarkdownImportModal extends FuzzySuggestModal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
-    this.setPlaceholder('选择要导入的 Markdown 文件…');
+    this.setPlaceholder(t("select_a_markdown_file_to_import_bc13aba8"));
   }
 
   getItems() {
@@ -1686,18 +1627,18 @@ class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
     super(app);
     this.plugin = plugin;
     this.view = view;
-    this.setPlaceholder('搜索页面或执行操作…');
+    this.setPlaceholder(t("search_pages_or_run_an_action_09c4a5ff"));
   }
 
   getItems() {
     const actions = [
-      { kind: 'action', id: 'new-page', label: '新建页面', hint: '创建一个空白页面' },
-      { kind: 'action', id: 'document', label: '切换到文档', hint: '打开当前页面正文' },
-      { kind: 'action', id: 'board', label: '切换到看板', hint: '按状态查看所有页面' },
-      { kind: 'action', id: 'focus', label: '切换专注模式', hint: '沉浸式编辑当前页面' },
-      { kind: 'action', id: 'inspector', label: '打开页面检查器', hint: '在 Obsidian 右侧栏查看属性、大纲和统计' },
-      { kind: 'action', id: 'import', label: '导入 Markdown', hint: '从现有笔记创建页面' },
-      { kind: 'action', id: 'diagnostics', label: '诊断与恢复', hint: '检查结构化数据' },
+      { kind: 'action', id: 'new-page', label: t("new_page_64451e31"), hint: t("create_a_blank_page_64d6fbd9") },
+      { kind: 'action', id: 'document', label: t("switch_to_document_544b0667"), hint: t("open_the_current_page_body_f8d61d62") },
+      { kind: 'action', id: 'board', label: t("switch_to_board_1a13ad24"), hint: t("view_all_pages_by_status_d4b112ee") },
+      { kind: 'action', id: 'focus', label: t("toggle_focus_mode_fcf200c4"), hint: t("focus_on_editing_the_current_page_1beb0f01") },
+      { kind: 'action', id: 'inspector', label: t("open_page_inspector_50425586"), hint: t("view_properties_outline_and_statistics_in_obsidi_926e298a") },
+      { kind: 'action', id: 'import', label: t("import_markdown_fb4d8201"), hint: t("create_a_page_from_an_existing_note_8e22efc6") },
+      { kind: 'action', id: 'diagnostics', label: t("diagnostics_and_recovery_18b77e4a"), hint: t("check_structured_data_382441d9") },
     ];
     const pages = Core.sortPageMetas(this.plugin.store.workspace.pages).map((page) => {
       const fullPage = this.view.page && this.view.page.id === page.id
@@ -1725,7 +1666,7 @@ class BlockspaceQuickSwitcherModal extends FuzzySuggestModal {
       element.createSpan({ cls: 'bs-switcher-icon', text: item.page.icon || '📄' });
       const body = element.createSpan({ cls: 'bs-switcher-body' });
       body.createSpan({ cls: 'bs-switcher-title', text: item.page.title });
-      body.createSpan({ cls: 'bs-switcher-hint', text: `${STATUS_LABELS[item.page.status] || '页面'} · ${new Date(item.page.updatedAt).toLocaleDateString()}` });
+      body.createSpan({ cls: 'bs-switcher-hint', text: `${STATUS_LABELS[item.page.status] || t("page_452c7b10")} · ${new Date(item.page.updatedAt).toLocaleDateString()}` });
       return;
     }
     const icon = element.createSpan({ cls: 'bs-switcher-icon is-action' });
@@ -1761,18 +1702,18 @@ class LinkInputModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.addClass('bs-style-modal');
-    contentEl.createEl('h2', { text: '添加链接' });
-    contentEl.createDiv({ cls: 'bs-style-modal-description', text: '输入网页地址、Obsidian URI、锚点，或 [[页面名称]]。' });
-    const input = contentEl.createEl('input', { cls: 'bs-style-link-input', attr: { type: 'text', placeholder: 'https://example.com 或 [[页面名称]]' } });
+    contentEl.createEl('h2', { text: t("add_link_d6ff3cba") });
+    contentEl.createDiv({ cls: 'bs-style-modal-description', text: t("enter_a_web_address_obsidian_uri_anchor_or_page__46d259a0") });
+    const input = contentEl.createEl('input', { cls: 'bs-style-link-input', attr: { type: 'text', placeholder: t("https_example_com_or_page_name_b7ccf264") } });
     input.value = this.initialValue;
     const actions = contentEl.createDiv({ cls: 'bs-style-modal-actions' });
-    const cancel = createButton(actions, '', '取消', 'x', '取消');
+    const cancel = createButton(actions, '', t("cancel_2cd0f3be"), 'x', t("cancel_2cd0f3be"));
     cancel.addEventListener('click', () => this.close());
-    const apply = createButton(actions, 'mod-cta', '应用链接', 'link', '应用');
+    const apply = createButton(actions, 'mod-cta', t("apply_link_213f5505"), 'link', t("apply_63c73c47"));
     const submit = () => {
       const value = sanitizeLink(input.value);
       if (!value) {
-        new Notice('请输入有效链接');
+        new Notice(t("enter_a_valid_link_d03dd582"));
         return;
       }
       this.onSubmit(value);
@@ -1802,14 +1743,14 @@ class PageIconModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.addClass('bs-style-modal');
-    contentEl.createEl('h2', { text: '自定义页面图标' });
-    contentEl.createDiv({ cls: 'bs-style-modal-description', text: '粘贴任意 Emoji 或字符作为页面图标，留空表示不使用图标。' });
-    const input = contentEl.createEl('input', { cls: 'bs-style-link-input', attr: { type: 'text', placeholder: '例如 📘', maxlength: '8' } });
+    contentEl.createEl('h2', { text: t("custom_page_icon_b1a9904e") });
+    contentEl.createDiv({ cls: 'bs-style-modal-description', text: t("paste_an_emoji_or_character_to_use_as_the_page_i_09986e1c") });
+    const input = contentEl.createEl('input', { cls: 'bs-style-link-input', attr: { type: 'text', placeholder: t("for_example_d97fd418"), maxlength: '8' } });
     input.value = this.initialValue;
     const actions = contentEl.createDiv({ cls: 'bs-style-modal-actions' });
-    const cancel = createButton(actions, '', '取消', 'x', '取消');
+    const cancel = createButton(actions, '', t("cancel_2cd0f3be"), 'x', t("cancel_2cd0f3be"));
     cancel.addEventListener('click', () => this.close());
-    const apply = createButton(actions, 'mod-cta', '应用图标', 'check', '应用');
+    const apply = createButton(actions, 'mod-cta', t("apply_icon_c96905bc"), 'check', t("apply_63c73c47"));
     const submit = () => {
       this.onSubmit(String(input.value || '').trim().slice(0, 8));
       this.close();
@@ -1844,8 +1785,8 @@ class BlockAppearanceModal extends Modal {
     }
     this.appearance = Core.normalizeBlockAppearance(block.appearance);
     contentEl.addClass('bs-style-modal');
-    contentEl.createEl('h2', { text: this.blockIds.length > 1 ? `块样式（${this.blockIds.length} 个块）` : '块样式' });
-    contentEl.createDiv({ cls: 'bs-style-modal-description', text: '颜色使用语义化主题值，会自动适配 Obsidian 的明暗主题。' });
+    contentEl.createEl('h2', { text: this.blockIds.length > 1 ? t("block_styles_0_blocks_d4743839", [this.blockIds.length]) : t("block_style_8f82ddc1") });
+    contentEl.createDiv({ cls: 'bs-style-modal-description', text: t("colors_use_semantic_theme_values_and_adapt_to_ob_3c6ba9ba") });
 
     const renderColorSection = (title, key) => {
       const section = contentEl.createDiv({ cls: 'bs-style-section' });
@@ -1867,13 +1808,13 @@ class BlockAppearanceModal extends Modal {
         });
       }
     };
-    renderColorSection('文字颜色', 'textColor');
-    renderColorSection('背景颜色', 'background');
+    renderColorSection(t("text_color_f21ef4ab"), 'textColor');
+    renderColorSection(t("background_color_882fe2e8"), 'background');
 
     const alignSection = contentEl.createDiv({ cls: 'bs-style-section' });
-    alignSection.createDiv({ cls: 'bs-style-section-title', text: '对齐方式' });
+    alignSection.createDiv({ cls: 'bs-style-section-title', text: t("alignment_46886255") });
     const alignGroup = alignSection.createDiv({ cls: 'bs-style-align-group' });
-    for (const [align, label, iconName] of [['left', '左对齐', 'align-left'], ['center', '居中', 'align-center'], ['right', '右对齐', 'align-right']]) {
+    for (const [align, label, iconName] of [['left', t("align_left_2bd74486"), 'align-left'], ['center', t("center_4cc3885c"), 'align-center'], ['right', t("align_right_331c711e"), 'align-right']]) {
       const button = createButton(alignGroup, `bs-style-align${this.appearance.align === align ? ' is-selected' : ''}`, label, iconName, label);
       button.addEventListener('click', () => {
         this.appearance.align = align;
@@ -1882,18 +1823,18 @@ class BlockAppearanceModal extends Modal {
     }
 
     const actions = contentEl.createDiv({ cls: 'bs-style-modal-actions' });
-    const reset = createButton(actions, '', '清除块样式', 'eraser', '清除样式');
+    const reset = createButton(actions, '', t("clear_block_styles_1277e80b"), 'eraser', t("clear_styles_384fbf42"));
     reset.addEventListener('click', () => {
       this.appearance = Core.normalizeBlockAppearance({});
       this.applyAndClose();
     });
-    const apply = createButton(actions, 'mod-cta', '应用块样式', 'check', '应用');
+    const apply = createButton(actions, 'mod-cta', t("apply_block_styles_5fca7a7a"), 'check', t("apply_63c73c47"));
     apply.addEventListener('click', () => this.applyAndClose());
   }
 
   applyAndClose() {
     const appearance = Core.normalizeBlockAppearance(this.appearance);
-    const changed = this.view.performMutation(this.blockIds.length > 1 ? '批量修改块样式' : '修改块样式', (page) => {
+    const changed = this.view.performMutation(this.blockIds.length > 1 ? t("change_multiple_block_styles_b0b5b698") : t("change_block_style_6e4d4714"), (page) => {
       const selected = new Set(this.blockIds);
       for (const target of page.blocks) if (selected.has(target.id)) target.appearance = appearance;
     }, { render: false });
@@ -2024,10 +1965,10 @@ class BlockspaceView extends ItemView {
       }
       return action;
     };
-    add('search', '切换 Blockspace 页面', () => this.openQuickSwitcher());
-    add('panel-right', '打开 Blockspace 大纲', () => void this.plugin.activateInspector());
-    add('book-open', '切换 Obsidian 原生 Markdown 阅读模式', () => this.toggleReadingMode());
-    add('blocks', 'Blockspace 页面操作', (event) => this.showWorkspaceMenu(event));
+    add('search', t("switch_blockspace_page_821c93bc"), () => this.openQuickSwitcher());
+    add('panel-right', t("open_blockspace_outline_dfd76be7"), () => void this.plugin.activateInspector());
+    add('book-open', t("toggle_obsidian_native_markdown_reading_mode_d78a92fb"), () => this.toggleReadingMode());
+    add('blocks', t("blockspace_page_actions_3b2fb6be"), (event) => this.showWorkspaceMenu(event));
   }
 
   setPage(page) {
@@ -2190,7 +2131,7 @@ class BlockspaceView extends ItemView {
     if (!logical || logical.ranges.length < 2 || !this.page) return false;
     const selectionBefore = { type: logical.type, ranges: logical.ranges.map((range) => ({ ...range })) };
     let result = null;
-    const changed = this.performMutation('删除跨块文字', (page) => {
+    const changed = this.performMutation(t("delete_text_across_blocks_aa8086d6"), (page) => {
       result = Core.deleteSiblingTextRange(page, {
         startBlockId: logical.ranges[0].blockId,
         startOffset: logical.ranges[0].from,
@@ -2341,12 +2282,12 @@ class BlockspaceView extends ItemView {
         mount(
           'is-conflict',
           'alert',
-          '此页面已在其他窗口或设备修改。本地内容已安全保留，请选择继续方式。',
+          t("this_page_was_modified_in_another_window_or_on_a_fad04a30"),
           issue.conflictPath || '',
           (actions) => {
-            const keepLocal = createButton(actions, 'bs-status-banner-action mod-cta', '将本地冲突内容恢复为新页面', 'copy-plus', '保留本地副本');
+            const keepLocal = createButton(actions, 'bs-status-banner-action mod-cta', t("restore_local_conflicting_content_as_a_new_page_f77df21e"), 'copy-plus', t("keep_local_copy_8491b0b6"));
             keepLocal.addEventListener('click', () => void this.restoreConflictCopy(keepLocal));
-            const reload = createButton(actions, 'bs-status-banner-action', '放弃当前未保存状态并载入磁盘版本', 'refresh-cw', '载入磁盘版本');
+            const reload = createButton(actions, 'bs-status-banner-action', t("discard_unsaved_changes_and_load_the_disk_versio_ed0dd4dc"), 'refresh-cw', t("load_disk_version_3ca790c8"));
             reload.addEventListener('click', () => void this.reloadDiskPage(reload));
           },
         );
@@ -2354,28 +2295,28 @@ class BlockspaceView extends ItemView {
         mount(
           'is-error',
           'alert',
-          '保存失败，待恢复日志仍然保留。请检查存储状态后重试。',
+          t("save_failed_the_recovery_journal_is_preserved_ch_c66d91a8"),
           issue.message || '',
           (actions) => {
-            const retry = createButton(actions, 'bs-status-banner-action mod-cta', '重新尝试保存当前页面', 'refresh-cw', '重试保存');
+            const retry = createButton(actions, 'bs-status-banner-action mod-cta', t("try_saving_the_current_page_again_0f4fecf1"), 'refresh-cw', t("retry_save_917e7504"));
             retry.addEventListener('click', () => void this.retrySave(retry));
-            const diagnostics = createButton(actions, 'bs-status-banner-action', '打开诊断与恢复', 'life-buoy', '诊断与恢复');
+            const diagnostics = createButton(actions, 'bs-status-banner-action', t("open_diagnostics_and_recovery_7acf8511"), 'life-buoy', t("diagnostics_and_recovery_18b77e4a"));
             diagnostics.addEventListener('click', () => new BlockspaceDiagnosticsModal(this.app, this.plugin).open());
           },
         );
       }
     }
     if (this.pendingDeletion) {
-      const title = this.pendingDeletion.page && this.pendingDeletion.page.title || '页面';
+      const title = this.pendingDeletion.page && this.pendingDeletion.page.title || t("page_452c7b10");
       mount(
         'is-undo',
         'status',
-        `“${title}”已移入 Blockspace 回收站。`,
+        t("0_was_moved_to_blockspace_trash_ae1c5e03", [title]),
         '',
         (actions) => {
-          const undo = createButton(actions, 'bs-status-banner-action mod-cta', `撤销删除“${title}”`, 'undo-2', '撤销删除');
+          const undo = createButton(actions, 'bs-status-banner-action mod-cta', t("undo_deletion_of_0_aa6d9743", [title]), 'undo-2', t("undo_deletion_d1ff25a7"));
           undo.addEventListener('click', () => void this.undoPageDeletion(undo));
-          const dismiss = createButton(actions, 'bs-status-banner-action', '关闭删除提示', 'x', '关闭');
+          const dismiss = createButton(actions, 'bs-status-banner-action', t("dismiss_deletion_notice_d59c3257"), 'x', t("close_3fd47edc"));
           dismiss.addEventListener('click', () => {
             this.pendingDeletion = null;
             this.renderStatusBanners();
@@ -2392,13 +2333,13 @@ class BlockspaceView extends ItemView {
     try {
       const restored = await this.plugin.store.restoreConflictFile(issue.conflictPath);
       if (!restored) {
-        new Notice('没有找到可恢复的本地冲突副本');
+        new Notice(t("no_recoverable_local_conflict_copy_found_f8e96eff"));
         return;
       }
       this.saveIssue = null;
       this.setPage(restored);
       this.render();
-      new Notice(`已将本地内容恢复为新页面：${restored.title}`);
+      new Notice(t("restored_local_content_as_a_new_page_0_8db41f3a", [restored.title]));
     } finally {
       button.disabled = false;
     }
@@ -2410,13 +2351,13 @@ class BlockspaceView extends ItemView {
     try {
       const disk = await this.plugin.store.loadPage(this.page.id);
       if (!disk) {
-        new Notice('磁盘版本不存在，本地冲突副本仍然保留');
+        new Notice(t("disk_version_is_missing_the_local_conflict_copy__50b11605"));
         return;
       }
       this.saveIssue = null;
       this.setPage(disk);
       this.render();
-      new Notice('已载入磁盘版本');
+      new Notice(t("loaded_disk_version_5ec7173b"));
     } finally {
       button.disabled = false;
     }
@@ -2440,13 +2381,13 @@ class BlockspaceView extends ItemView {
     try {
       const restored = await this.plugin.store.restoreDeletedPage(deletion, { activate: deletion.wasActive !== false });
       if (!restored) {
-        new Notice('无法恢复刚刚删除的页面，请在诊断与恢复中检查回收站');
+        new Notice(t("could_not_restore_the_deleted_page_check_trash_i_4c9f0307"));
         return;
       }
       this.pendingDeletion = null;
       if (deletion.wasActive !== false) this.setPage(restored);
       this.render();
-      new Notice(`已恢复页面：${restored.title}`);
+      new Notice(t("restored_page_0_e0fca678", [restored.title]));
     } finally {
       button.disabled = false;
     }
@@ -2595,11 +2536,11 @@ class BlockspaceView extends ItemView {
     const toolbar = document.createElement('div');
     toolbar.className = 'bs-block-selection-toolbar';
     toolbar.setAttribute('role', 'toolbar');
-    toolbar.setAttribute('aria-label', `${ids.length} 个块已选择`);
+    toolbar.setAttribute('aria-label', t("0_blocks_selected_0ebe0a3f", [ids.length]));
     toolbar.addEventListener('mousedown', (event) => event.preventDefault());
     const count = document.createElement('span');
     count.className = 'bs-block-selection-count';
-    count.textContent = `${ids.length} 个块`;
+    count.textContent = t("0_blocks_984091af", [ids.length]);
     toolbar.appendChild(count);
     const makeButton = (iconName, label, handler, disabled = false) => {
       const button = document.createElement('button');
@@ -2619,17 +2560,17 @@ class BlockspaceView extends ItemView {
       toolbar.appendChild(button);
       return button;
     };
-    makeButton('copy', '复制所选块（Ctrl/Cmd + D）', () => this.duplicateSelectedBlocks());
-    makeButton('clipboard-copy', '复制为 Markdown（Ctrl/Cmd + C）', () => void this.copySelectedBlocks());
-    makeButton('arrow-up', '上移同级位置（Alt + ↑）', () => this.moveSelectedBlocks(-1));
-    makeButton('arrow-down', '下移同级位置（Alt + ↓）', () => this.moveSelectedBlocks(1));
-    makeButton('palette', '设置所选块样式', () => new BlockAppearanceModal(this.app, this, ids).open());
-    makeButton('replace', '转换块类型', (event) => this.showBlockTypeMenu(event, ids), ids.some((id) => Core.getBlock(this.page, id)?.type === 'columns'));
+    makeButton('copy', t("duplicate_selected_blocks_ctrl_cmd_d_c1840961"), () => this.duplicateSelectedBlocks());
+    makeButton('clipboard-copy', t("copy_as_markdown_ctrl_cmd_c_213aca37"), () => void this.copySelectedBlocks());
+    makeButton('arrow-up', t("move_up_among_siblings_alt_21ba3db1"), () => this.moveSelectedBlocks(-1));
+    makeButton('arrow-down', t("move_down_among_siblings_alt_e40c9df2"), () => this.moveSelectedBlocks(1));
+    makeButton('palette', t("style_selected_blocks_6b63a377"), () => new BlockAppearanceModal(this.app, this, ids).open());
+    makeButton('replace', t("change_block_type_ea166358"), (event) => this.showBlockTypeMenu(event, ids), ids.some((id) => Core.getBlock(this.page, id)?.type === 'columns'));
     const separator = document.createElement('span');
     separator.className = 'bs-block-selection-separator';
     toolbar.appendChild(separator);
-    makeButton('trash-2', '删除所选块（Delete）', () => this.deleteSelectedBlocks()).classList.add('is-destructive');
-    makeButton('x', '取消选择（Esc）', () => this.clearBlockSelection());
+    makeButton('trash-2', t("delete_selected_blocks_delete_70dce6a3"), () => this.deleteSelectedBlocks()).classList.add('is-destructive');
+    makeButton('x', t("clear_selection_esc_3a9909ae"), () => this.clearBlockSelection());
     const host = this.contentEl.querySelector('.bs-main') || document.body;
     host.appendChild(toolbar);
     this.blockSelectionToolbarEl = toolbar;
@@ -2643,7 +2584,7 @@ class BlockspaceView extends ItemView {
     for (const command of SLASH_COMMANDS) {
       const disabled = containsColumnsLayout || (command.type === 'columns' && blockIds.length !== 1);
       menu.addItem((item) => item.setTitle(command.label).setIcon(command.icon).setDisabled(disabled).onClick(() => {
-        this.performMutation(blockIds.length > 1 ? `批量转换为${command.label}` : `转换为${command.label}`, (page) => {
+        this.performMutation(blockIds.length > 1 ? t("convert_selected_blocks_to_0_dc0aa68f", [command.label]) : t("convert_to_0_605a845f", [command.label]), (page) => {
           if (command.type === 'columns') {
             for (const blockId of blockIds) Core.convertBlockToColumns(page, blockId, 2);
           } else Core.convertBlockType(page, blockIds, command.type);
@@ -2657,7 +2598,7 @@ class BlockspaceView extends ItemView {
     const ids = this.getOrderedSelectedBlockIds();
     if (!ids.length || !this.page) return;
     let copiedIds = [];
-    this.performMutation(ids.length > 1 ? '复制多个块及其子块' : '复制块及其子块', (page) => {
+    this.performMutation(ids.length > 1 ? t("duplicate_blocks_and_their_children_0c3db023") : t("duplicate_block_and_its_children_959f4542"), (page) => {
       copiedIds = Core.duplicateSubtrees(page, ids);
     }, { render: false });
     if (!copiedIds.length) return;
@@ -2670,7 +2611,7 @@ class BlockspaceView extends ItemView {
   moveSelectedBlocks(direction) {
     const ids = this.getOrderedSelectedBlockIds();
     if (!ids.length || !this.page) return;
-    this.performMutation(direction < 0 ? '上移所选子树' : '下移所选子树', (page) => {
+    this.performMutation(direction < 0 ? t("move_selected_subtrees_up_68d0fe75") : t("move_selected_subtrees_down_435043a8"), (page) => {
       Core.moveSiblingGroup(page, ids, direction);
     });
   }
@@ -2678,7 +2619,7 @@ class BlockspaceView extends ItemView {
   indentSelectedBlocks(delta) {
     const ids = this.getOrderedSelectedBlockIds();
     if (!ids.length) return;
-    this.performMutation(delta < 0 ? '减少所选块层级' : '将所选块移入上一容器', (page) => {
+    this.performMutation(delta < 0 ? t("outdent_selected_blocks_9118bc55") : t("move_selected_blocks_into_the_previous_container_b61eaabb"), (page) => {
       if (delta < 0) Core.outdentBlocks(page, ids);
       else Core.indentBlocks(page, ids);
     });
@@ -2689,7 +2630,7 @@ class BlockspaceView extends ItemView {
     if (!ids.length || !this.page) return;
     const visible = this.getVisibleBlocks();
     const firstIndex = Math.min(...ids.map((id) => visible.findIndex((block) => block.id === id)).filter((index) => index >= 0));
-    this.performMutation(ids.length > 1 ? '删除多个块及其子块' : '删除块及其子块', (page) => {
+    this.performMutation(ids.length > 1 ? t("delete_blocks_and_their_children_95cab2da") : t("delete_block_and_its_children_eb336aa1"), (page) => {
       Core.removeSubtrees(page, ids);
     }, { render: false });
     this.clearBlockSelection({ updateDom: false });
@@ -2697,7 +2638,7 @@ class BlockspaceView extends ItemView {
     const nextVisible = this.getVisibleBlocks();
     const target = nextVisible[Math.max(0, Math.min(firstIndex, nextVisible.length - 1))];
     if (target) focusEditorAt(this, target.id, 0);
-    new Notice(`已删除 ${ids.length} 个块（Ctrl/Cmd + Z 撤销）`);
+    new Notice(t("deleted_0_blocks_ctrl_cmd_z_to_undo_3ad5774d", [ids.length]));
   }
 
   async copySelectedBlocks() {
@@ -2715,7 +2656,7 @@ class BlockspaceView extends ItemView {
     const markdown = Core.blocksToMarkdown(clone).trimEnd();
     try {
       await this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(markdown);
-      new Notice(`已复制 ${selectedRoots.length} 个块子树`);
+      new Notice(t("copied_0_block_subtrees_a879125a", [selectedRoots.length]));
     } catch (error) {
       const textarea = this.contentEl.ownerDocument.createElement('textarea');
       textarea.value = markdown;
@@ -2725,11 +2666,11 @@ class BlockspaceView extends ItemView {
       textarea.select();
       this.contentEl.ownerDocument.execCommand('copy');
       textarea.remove();
-      new Notice(`已复制 ${selectedRoots.length} 个块子树`);
+      new Notice(t("copied_0_block_subtrees_a879125a", [selectedRoots.length]));
     }
   }
 
-  async writeClipboardText(text, message = '已复制') {
+  async writeClipboardText(text, message = t("copied_8f6f8d97")) {
     try {
       await this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text);
     } catch (error) {
@@ -2747,13 +2688,13 @@ class BlockspaceView extends ItemView {
 
   async copyBlockReference(block, mode = 'reference') {
     if (!block) return;
-    const label = String(block.text || '未命名块').replace(/\s+/g, ' ').trim().slice(0, 120) || '未命名块';
+    const label = String(block.text || t("untitled_block_f28874e8")).replace(/\s+/g, ' ').trim().slice(0, 120) || t("untitled_block_f28874e8");
     if (mode === 'link') {
-      await this.writeClipboardText(`[${label}](blockspace://block/${encodeURIComponent(block.id)})`, '已复制块链接');
+      await this.writeClipboardText(`[${label}](blockspace://block/${encodeURIComponent(block.id)})`, t("copied_block_link_45cf587c"));
       return;
     }
     const escaped = label.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    await this.writeClipboardText(`((${block.id} "${escaped}"))`, '已复制思源兼容块引用');
+    await this.writeClipboardText(`((${block.id} "${escaped}"))`, t("copied_siyuan_compatible_block_reference_7fd8e19a"));
   }
 
   showBacklinksForBlock(blockId) {
@@ -2858,7 +2799,7 @@ class BlockspaceView extends ItemView {
     const toolbar = document.createElement('div');
     toolbar.className = 'bs-format-toolbar';
     toolbar.setAttribute('role', 'toolbar');
-    toolbar.setAttribute('aria-label', '文字格式');
+    toolbar.setAttribute('aria-label', t("text_formatting_83df46fc"));
     toolbar.addEventListener('mousedown', (event) => event.preventDefault());
     const ranges = Array.isArray(state.ranges) && state.ranges.length
       ? state.ranges
@@ -2869,8 +2810,8 @@ class BlockspaceView extends ItemView {
     if (ranges.length > 1) {
       const count = document.createElement('span');
       count.className = 'bs-format-range-count';
-      count.textContent = `${ranges.length} 个块`;
-      count.title = '当前格式操作会应用到跨块文字选区';
+      count.textContent = t("0_blocks_984091af", [ranges.length]);
+      count.title = t("formatting_applies_to_the_text_selection_across__5ddd30e6");
       toolbar.appendChild(count);
     }
     const markState = (type) => {
@@ -2900,21 +2841,21 @@ class BlockspaceView extends ItemView {
       toolbar.appendChild(element);
       return element;
     };
-    button('bold', '加粗（Ctrl/Cmd + B）', 'bold', () => this.applyInlineFormat('bold'));
-    button('italic', '斜体（Ctrl/Cmd + I）', 'italic', () => this.applyInlineFormat('italic'));
-    button('underline', '下划线（Ctrl/Cmd + U）', 'underline', () => this.applyInlineFormat('underline'));
-    button('strikethrough', '删除线（Ctrl/Cmd + Shift + S）', 'strike', () => this.applyInlineFormat('strike'));
-    button('code-2', '行内代码', 'code', () => this.applyInlineFormat('code'));
+    button('bold', t("bold_ctrl_cmd_b_f08383b6"), 'bold', () => this.applyInlineFormat('bold'));
+    button('italic', t("italic_ctrl_cmd_i_9eb54e4b"), 'italic', () => this.applyInlineFormat('italic'));
+    button('underline', t("underline_ctrl_cmd_u_7751839f"), 'underline', () => this.applyInlineFormat('underline'));
+    button('strikethrough', t("strikethrough_ctrl_cmd_shift_s_fcdc21da"), 'strike', () => this.applyInlineFormat('strike'));
+    button('code-2', t("inline_code_6711d910"), 'code', () => this.applyInlineFormat('code'));
     toolbar.appendChild(document.createElement('span')).className = 'bs-format-separator';
-    button('link', '添加或修改链接（Ctrl/Cmd + K）', 'link', () => this.openLinkForSelection());
-    const textButton = button('palette', '文字颜色', null, (_event, element) => this.toggleInlineColorPalette(element, 'textColor'));
+    button('link', t("add_or_edit_link_ctrl_cmd_k_902f60cc"), 'link', () => this.openLinkForSelection());
+    const textButton = button('palette', t("text_color_f21ef4ab"), null, (_event, element) => this.toggleInlineColorPalette(element, 'textColor'));
     const textMark = active.find((mark) => mark.type === 'textColor');
     if (textMark) textButton.dataset.activeColor = textMark.value;
-    const highlightButton = button('highlighter', '高亮颜色', null, (_event, element) => this.toggleInlineColorPalette(element, 'highlight'));
+    const highlightButton = button('highlighter', t("highlight_color_d1bbaa6f"), null, (_event, element) => this.toggleInlineColorPalette(element, 'highlight'));
     const highlightMark = active.find((mark) => mark.type === 'highlight');
     if (highlightMark) highlightButton.dataset.activeColor = highlightMark.value;
     toolbar.appendChild(document.createElement('span')).className = 'bs-format-separator';
-    button('remove-formatting', '清除格式（Ctrl/Cmd + \\）', null, () => this.clearInlineFormatting());
+    button('remove-formatting', t("clear_formatting_ctrl_cmd_a149c504"), null, () => this.clearInlineFormatting());
     document.body.appendChild(toolbar);
     this.formatToolbarEl = toolbar;
     const win = document.defaultView;
@@ -2954,7 +2895,7 @@ class BlockspaceView extends ItemView {
       const swatch = palette.ownerDocument.createElement('button');
       swatch.type = 'button';
       swatch.className = `bs-format-swatch is-${type === 'textColor' ? 'text' : 'highlight'}-${color}`;
-      swatch.setAttribute('aria-label', `${type === 'textColor' ? '文字' : '高亮'}：${STYLE_COLOR_LABELS[color]}`);
+      swatch.setAttribute('aria-label', `${type === 'textColor' ? t("text_14b69bd6") : t("highlight_05f95456")}：${STYLE_COLOR_LABELS[color]}`);
       swatch.title = STYLE_COLOR_LABELS[color];
       if (color === 'default') setIcon(swatch, 'rotate-ccw');
       swatch.addEventListener('mousedown', (event) => event.preventDefault());
@@ -2985,7 +2926,7 @@ class BlockspaceView extends ItemView {
     const ranges = Array.isArray(state.ranges) && state.ranges.length
       ? state.ranges.map((range) => ({ ...range }))
       : [{ blockId: state.blockId, from: state.from, to: state.to }];
-    this.performMutation(type === 'textColor' ? '修改文字颜色' : type === 'highlight' ? '修改高亮颜色' : '修改文字格式', (page) => {
+    this.performMutation(type === 'textColor' ? t("change_text_color_b73dd7c9") : type === 'highlight' ? t("change_highlight_color_2a3c2d65") : t("change_text_formatting_cde49205"), (page) => {
       Core.applyInlineMarkToRanges(page, ranges, type, value);
     }, {
       render: false,
@@ -3006,7 +2947,7 @@ class BlockspaceView extends ItemView {
     const ranges = Array.isArray(state.ranges) && state.ranges.length
       ? state.ranges.map((range) => ({ ...range }))
       : [{ blockId: state.blockId, from: state.from, to: state.to }];
-    this.performMutation('清除文字格式', (page) => {
+    this.performMutation(t("clear_text_formatting_fc399ff4"), (page) => {
       Core.clearInlineMarksFromRanges(page, ranges);
     }, {
       render: false,
@@ -3168,10 +3109,10 @@ class BlockspaceView extends ItemView {
     hint.className = `bs-drop-hint is-${position}`;
     const label = truncateBlockLabel(block);
     hint.textContent = position === 'inside'
-      ? `移入“${label}”`
+      ? t("move_into_0_faf38ba0", [label])
       : position === 'before'
-        ? `放在“${label}”之前`
-        : `放在“${label}”之后`;
+        ? t("place_before_0_901f33fd", [label])
+        : t("place_after_0_00b77b15", [label]);
     if (sourceIds.length > 1) hint.dataset.count = String(sourceIds.length);
     wrapper.appendChild(hint);
     this.dropHintEl = hint;
@@ -3186,7 +3127,7 @@ class BlockspaceView extends ItemView {
     const roots = Core.normalizeTopLevelSelection(this.page, sourceIds);
     const first = roots.length && Core.getBlock(this.page, roots[0]);
     preview.textContent = roots.length > 1
-      ? `☷ ${roots.length} 个块`
+      ? t("0_blocks_dcde334a", [roots.length])
       : `☷ ${truncateBlockLabel(first)}`;
     document.body.appendChild(preview);
     this.dragPreviewEl = preview;
@@ -3378,7 +3319,7 @@ class BlockspaceView extends ItemView {
       this.findCountEl.textContent = state.searching
         ? '…'
         : state.query ? `${position}/${count}${state.truncated ? '+' : ''}` : '0/0';
-      this.findCountEl.title = state.truncated ? `结果超过 ${MAX_FIND_MATCHES} 项，已限制导航范围` : '';
+      this.findCountEl.title = state.truncated ? t("more_than_0_results_navigation_has_been_limited_93870376", [MAX_FIND_MATCHES]) : '';
     }
     for (const button of [this.findPreviousButton, this.findNextButton, this.findReplaceButton]) {
       if (button) button.disabled = count === 0;
@@ -3430,7 +3371,7 @@ class BlockspaceView extends ItemView {
     const match = state.matches[state.activeIndex];
     if (!match) return;
     let replaced = false;
-    const changed = this.performMutation('替换文本', (page) => {
+    const changed = this.performMutation(t("replace_text_353d819b"), (page) => {
       replaced = Core.replacePageTextMatch(page, match, state.replacement);
     }, { render: false });
     if (!replaced || !changed) {
@@ -3448,14 +3389,14 @@ class BlockspaceView extends ItemView {
     const state = this.findReplaceState;
     if (!state.query || !state.matches.length) return;
     let replaced = 0;
-    const changed = this.performMutation(`全部替换“${state.query}”`, (page) => {
+    const changed = this.performMutation(t("replace_all_0_2a5238db", [state.query]), (page) => {
       replaced = Core.replaceAllPageText(page, state.query, state.replacement, this.findOptions());
     }, { render: false });
     if (!changed || !replaced) return;
     state.focusTarget = 'replacement';
     this.refreshFindMatches({ resetActive: true });
     this.render();
-    new Notice(`已替换 ${replaced} 处文本，可用 Ctrl/Cmd + Z 一次撤销`);
+    new Notice(t("replaced_0_matches_ctrl_cmd_z_undoes_them_in_one_ccc22e64", [replaced]));
   }
 
   setFindReplacePosition(bar, x, y) {
@@ -3560,15 +3501,15 @@ class BlockspaceView extends ItemView {
     if (!state.open) return;
     const bar = root.createDiv({ cls: `bs-find-replace${state.showReplace ? ' is-replace-open' : ''}` });
     bar.setAttribute('role', 'search');
-    bar.setAttribute('aria-label', '在当前页面中查找和替换');
+    bar.setAttribute('aria-label', t("find_and_replace_in_the_current_page_4110c3c0"));
     this.findReplaceEl = bar;
 
     const dragHandle = bar.createEl('button', {
       cls: 'bs-find-drag-handle',
       attr: {
         type: 'button',
-        'aria-label': '拖动查找框；方向键微调位置；Home 复位',
-        title: '拖动移动 · 方向键微调 · 双击或 Home 复位',
+        'aria-label': t("drag_the_find_panel_use_arrow_keys_to_adjust_hom_21891eb4"),
+        title: t("drag_to_move_arrow_keys_to_adjust_double_click_o_c83b847b"),
       },
     });
     dragHandle.addEventListener('pointerdown', (event) => this.beginFindReplaceDrag(event, bar, dragHandle));
@@ -3576,7 +3517,7 @@ class BlockspaceView extends ItemView {
     dragHandle.addEventListener('dblclick', () => this.resetFindReplacePosition(bar));
 
     const findRow = bar.createDiv({ cls: 'bs-find-row' });
-    const expand = createButton(findRow, 'bs-find-icon-button bs-find-expand', state.showReplace ? '收起替换' : '展开替换', state.showReplace ? 'chevron-up' : 'chevron-down');
+    const expand = createButton(findRow, 'bs-find-icon-button bs-find-expand', state.showReplace ? t("collapse_replace_953a5204") : t("expand_replace_c03dbad7"), state.showReplace ? 'chevron-up' : 'chevron-down');
     expand.setAttribute('aria-expanded', state.showReplace ? 'true' : 'false');
     expand.addEventListener('click', () => {
       state.showReplace = !state.showReplace;
@@ -3589,10 +3530,10 @@ class BlockspaceView extends ItemView {
       attr: {
         type: 'text',
         value: state.query,
-        placeholder: '查找',
+        placeholder: t("find_3003318e"),
         autocomplete: 'off',
         spellcheck: 'false',
-        'aria-label': '查找文本',
+        'aria-label': t("find_text_cf80efcb"),
       },
     });
     queryInput.value = state.query;
@@ -3614,7 +3555,7 @@ class BlockspaceView extends ItemView {
     });
     const count = queryShell.createSpan({ cls: 'bs-find-count', attr: { 'aria-live': 'polite' } });
     this.findCountEl = count;
-    const caseButton = createButton(findRow, 'bs-find-text-button', '区分大小写', null, 'Aa');
+    const caseButton = createButton(findRow, 'bs-find-text-button', t("match_case_8c7e3447"), null, 'Aa');
     caseButton.toggleClass('is-active', state.matchCase);
     caseButton.setAttribute('aria-pressed', state.matchCase ? 'true' : 'false');
     caseButton.addEventListener('click', () => {
@@ -3623,7 +3564,7 @@ class BlockspaceView extends ItemView {
       caseButton.setAttribute('aria-pressed', state.matchCase ? 'true' : 'false');
       this.scheduleFindRefresh({ resetActive: true, scroll: true }, 0);
     });
-    const wholeWordButton = createButton(findRow, 'bs-find-text-button', '全词匹配', null, '词');
+    const wholeWordButton = createButton(findRow, 'bs-find-text-button', t("whole_words_7fff7e76"), null, t("word_52ff1aed"));
     wholeWordButton.toggleClass('is-active', state.wholeWord);
     wholeWordButton.setAttribute('aria-pressed', state.wholeWord ? 'true' : 'false');
     wholeWordButton.addEventListener('click', () => {
@@ -3632,11 +3573,11 @@ class BlockspaceView extends ItemView {
       wholeWordButton.setAttribute('aria-pressed', state.wholeWord ? 'true' : 'false');
       this.scheduleFindRefresh({ resetActive: true, scroll: true }, 0);
     });
-    this.findPreviousButton = createButton(findRow, 'bs-find-icon-button', '上一个结果（Shift + Enter）', 'chevron-up');
+    this.findPreviousButton = createButton(findRow, 'bs-find-icon-button', t("previous_result_shift_enter_543d0244"), 'chevron-up');
     this.findPreviousButton.addEventListener('click', () => this.navigateFindMatch(-1));
-    this.findNextButton = createButton(findRow, 'bs-find-icon-button', '下一个结果（Enter）', 'chevron-down');
+    this.findNextButton = createButton(findRow, 'bs-find-icon-button', t("next_result_enter_e7bd4382"), 'chevron-down');
     this.findNextButton.addEventListener('click', () => this.navigateFindMatch(1));
-    const close = createButton(findRow, 'bs-find-icon-button', '关闭查找', 'x');
+    const close = createButton(findRow, 'bs-find-icon-button', t("close_find_baeda7e7"), 'x');
     close.addEventListener('click', () => this.closeFindReplace());
 
     let replaceInput = null;
@@ -3648,10 +3589,10 @@ class BlockspaceView extends ItemView {
         attr: {
           type: 'text',
           value: state.replacement,
-          placeholder: '替换为',
+          placeholder: t("replace_with_7d37f059"),
           autocomplete: 'off',
           spellcheck: 'false',
-          'aria-label': '替换为',
+          'aria-label': t("replace_with_7d37f059"),
         },
       });
       replaceInput.value = state.replacement;
@@ -3667,9 +3608,9 @@ class BlockspaceView extends ItemView {
           this.closeFindReplace();
         }
       });
-      this.findReplaceButton = createButton(replaceRow, 'bs-find-action-button', '替换当前结果', null, '替换');
+      this.findReplaceButton = createButton(replaceRow, 'bs-find-action-button', t("replace_current_match_13d723a1"), null, t("replace_131b13aa"));
       this.findReplaceButton.addEventListener('click', () => this.replaceCurrentFindMatch());
-      this.findReplaceAllButton = createButton(replaceRow, 'bs-find-action-button', '替换当前页面中的全部结果', null, '全部');
+      this.findReplaceAllButton = createButton(replaceRow, 'bs-find-action-button', t("replace_all_matches_in_the_current_page_8fb859e9"), null, t("all_5c55a679"));
       this.findReplaceAllButton.addEventListener('click', () => this.replaceAllFindMatches());
     }
     this.updateFindControls();
@@ -3691,7 +3632,7 @@ class BlockspaceView extends ItemView {
       .filter((id) => Core.getBlock(this.page, id)?.collapsed);
     const collapsedSections = Core.getCollapsedSectionHeadingIds(this.page, blockId);
     if (collapsedAncestors.length || collapsedSections.length) {
-      this.performMutation('展开目标块路径', (page) => {
+      this.performMutation(t("expand_path_to_target_block_341a62be"), (page) => {
         for (const id of collapsedAncestors) Core.toggleBlockCollapsed(page, id, false);
         for (const id of collapsedSections) Core.toggleHeadingSectionCollapsed(page, id, false);
       });
@@ -3962,7 +3903,7 @@ class BlockspaceView extends ItemView {
     if (!this.page) return '';
     if (this.page.sourcePath) return normalizePath(this.page.sourcePath);
     const folder = String(this.plugin.settings.exportFolder || DEFAULT_SETTINGS.exportFolder).replace(/^\/+|\/+$/g, '');
-    return normalizePath(`${folder}/${Core.safeFileName(this.page.title || 'Untitled')}.md`);
+    return normalizePath(`${folder}/${Core.safeFileName(this.page.title || t('untitled'))}.md`);
   }
 
   async openPageAtBlock(pageId, blockId = null) {
@@ -3994,7 +3935,7 @@ class BlockspaceView extends ItemView {
       return true;
     }
     if (link.kind === 'blocked') {
-      new Notice(`Blockspace 已阻止不安全或不受支持的链接协议：${link.protocol}`);
+      new Notice(t("blockspace_blocked_an_unsafe_or_unsupported_link_010098c0", [link.protocol]));
       return false;
     }
     const win = this.contentEl && this.contentEl.ownerDocument ? this.contentEl.ownerDocument.defaultView : null;
@@ -4052,7 +3993,7 @@ class BlockspaceView extends ItemView {
     heading.createDiv({ cls: 'bs-reference-popover-title', text: preview.pageTitle });
     heading.createDiv({
       cls: 'bs-reference-popover-meta',
-      text: preview.blockId ? `块引用 · ${preview.backlinkCount} 条反链` : `页面 · ${preview.backlinkCount} 条反链`,
+      text: preview.blockId ? t("block_reference_0_backlinks_020424f9", [preview.backlinkCount]) : t("page_0_backlinks_b4c6b94f", [preview.backlinkCount]),
     });
     const body = popover.createDiv({ cls: 'bs-reference-popover-body' });
     if (preview.blockText) body.createDiv({ cls: 'bs-reference-popover-primary', text: preview.blockText });
@@ -4060,9 +4001,9 @@ class BlockspaceView extends ItemView {
       if (!String(child.text || '').trim()) continue;
       body.createDiv({ cls: 'bs-reference-popover-child', text: child.text });
     }
-    if (!body.childElementCount) body.createDiv({ cls: 'bs-reference-popover-empty', text: '空页面' });
+    if (!body.childElementCount) body.createDiv({ cls: 'bs-reference-popover-empty', text: t("empty_page_68b5367d") });
     const footer = popover.createDiv({ cls: 'bs-reference-popover-footer' });
-    const open = createButton(footer, 'bs-reference-popover-open', '打开引用目标', 'arrow-up-right', '打开');
+    const open = createButton(footer, 'bs-reference-popover-open', t("open_reference_target_a4aacea7"), 'arrow-up-right', t("open_c771248e"));
     open.addEventListener('click', () => {
       this.closeReferencePreview();
       void this.openPageAtBlock(preview.pageId, preview.blockId);
@@ -4140,10 +4081,10 @@ class BlockspaceView extends ItemView {
       copy.className = 'bs-image-fallback-copy';
       const title = document.createElement('span');
       title.className = 'bs-image-fallback-title';
-      title.textContent = String(image.getAttribute('alt') || '').trim() || '图片暂时无法显示';
+      title.textContent = String(image.getAttribute('alt') || '').trim() || t("image_cannot_be_displayed_d41b4607");
       const detail = document.createElement('span');
       detail.className = 'bs-image-fallback-detail';
-      detail.textContent = '图片资源不可用 · 点击尝试打开原地址';
+      detail.textContent = t("image_unavailable_click_to_try_opening_the_origi_4eb32b58");
       copy.append(title, detail);
       fallback.append(icon, copy);
       image.insertAdjacentElement('afterend', fallback);
@@ -4196,7 +4137,7 @@ class BlockspaceView extends ItemView {
         await MarkdownRenderer.render(this.app, String(markdown || ''), container, this.getMarkdownSourcePath(), component);
       } else if (typeof MarkdownRenderer.renderMarkdown === 'function') {
         await MarkdownRenderer.renderMarkdown(String(markdown || ''), container, this.getMarkdownSourcePath(), component);
-      } else throw new Error('当前 Obsidian 版本未提供 MarkdownRenderer');
+      } else throw new Error(t("this_obsidian_version_does_not_provide_markdownr_308574f7"));
       if (generation !== this.markdownRenderGeneration || this.markdownRenderComponents.get(key) !== component) return;
       container.querySelectorAll('a.internal-link').forEach((link) => link.setAttribute('data-blockspace-native-link', 'true'));
       this.attachRenderedLinkInteractions(container);
@@ -4205,14 +4146,14 @@ class BlockspaceView extends ItemView {
       if (this.markdownRenderComponents.get(key) !== component) return;
       clearElement(container);
       const message = container.createDiv({ cls: 'bs-markdown-render-error' });
-      message.createDiv({ cls: 'bs-markdown-render-error-title', text: 'Obsidian Markdown 渲染失败' });
+      message.createDiv({ cls: 'bs-markdown-render-error-title', text: t("obsidian_markdown_rendering_failed_292d38dc") });
       message.createDiv({ cls: 'bs-markdown-render-error-detail', text: String(error && error.message ? error.message : error) });
     }
   }
 
   toggleReadingMode(force = null) {
     if (this.activeTab !== 'document' || this.plugin.settings.markdownRenderMode === 'off') {
-      if (this.plugin.settings.markdownRenderMode === 'off') new Notice('请先在 Blockspace 设置中启用 Obsidian 原生 Markdown 渲染');
+      if (this.plugin.settings.markdownRenderMode === 'off') new Notice(t("enable_obsidian_native_markdown_rendering_in_blo_ba44485e"));
       return;
     }
     this.commitPendingEdit();
@@ -4225,19 +4166,19 @@ class BlockspaceView extends ItemView {
 
   renderNativeReadingDocument(host) {
     if (!this.page) {
-      host.createDiv({ cls: 'bs-empty-state', text: '没有可显示的页面' });
+      host.createDiv({ cls: 'bs-empty-state', text: t("no_page_to_display_c976f7a7") });
       return;
     }
     const scroll = host.createDiv({ cls: 'bs-document-scroll bs-native-reading-scroll' });
     const pageShell = scroll.createDiv({ cls: 'bs-page-shell bs-native-reading-shell is-coverless' });
     const header = pageShell.createDiv({ cls: 'bs-page-header bs-native-reading-header' });
-    header.createEl('h1', { cls: 'bs-page-title bs-native-reading-title', text: this.page.title || 'Untitled' });
+    header.createEl('h1', { cls: 'bs-page-title bs-native-reading-title', text: this.page.title || t('untitled') });
     const modeBar = pageShell.createDiv({ cls: 'bs-reading-mode-bar' });
     const label = modeBar.createDiv({ cls: 'bs-reading-mode-label' });
     const icon = label.createSpan({ cls: 'bs-reading-mode-icon' });
     setIcon(icon, 'book-open');
-    label.createSpan({ text: 'Obsidian 原生 Markdown 阅读模式' });
-    const edit = createButton(modeBar, 'bs-reading-mode-edit', '返回块编辑模式', 'square-pen', '编辑');
+    label.createSpan({ text: t("obsidian_native_markdown_reading_mode_d95f3cd6") });
+    const edit = createButton(modeBar, 'bs-reading-mode-edit', t("return_to_block_editing_7597bfac"), 'square-pen', t("edit_05183656"));
     edit.addEventListener('click', () => this.toggleReadingMode(false));
     const preview = pageShell.createDiv({ cls: 'bs-native-page-preview markdown-preview-view' });
     const markdown = Core.blocksToMarkdown(this.page);
@@ -4303,9 +4244,9 @@ class BlockspaceView extends ItemView {
     const button = wrapper.querySelector('.bs-markdown-edit-button');
     if (!button) return;
     button.tabIndex = 0;
-    button.setAttribute('aria-label', editing ? '完成 Markdown 编辑' : '编辑 Markdown 源码');
+    button.setAttribute('aria-label', editing ? t("finish_editing_markdown_8ee633ad") : t("edit_markdown_source_a346d23b"));
     const label = button.querySelector('.bs-button-label');
-    if (label) label.textContent = editing ? '完成' : '编辑';
+    if (label) label.textContent = editing ? t("done_c0b3fbff") : t("edit_05183656");
     const icon = button.querySelector('.bs-icon');
     if (icon) {
       clearElement(icon);
@@ -4651,9 +4592,9 @@ class BlockspaceView extends ItemView {
 
   addExportMenuItems(menu, pageProvider = () => this.page) {
     const formats = [
-      ['md', '导出无损 Markdown', 'file-output'],
-      ['docx', '导出 Word 文档', 'file-type-2'],
-      ['pdf', '导出 PDF', 'file-text'],
+      ['md', t("export_lossless_markdown_81a9210d"), 'file-output'],
+      ['docx', t("export_word_document_e49b0e54"), 'file-type-2'],
+      ['pdf', t("export_pdf_e42c8735"), 'file-text'],
     ];
     for (const [format, title, icon] of formats) {
       menu.addItem((item) => item.setTitle(title).setIcon(icon).onClick(async () => {
@@ -4669,23 +4610,23 @@ class BlockspaceView extends ItemView {
     const menu = new Menu();
     const boardActive = this.activeTab === 'board';
     menu.addItem((item) => item
-      .setTitle(boardActive ? '返回文档视图' : '打开项目看板')
+      .setTitle(boardActive ? t("return_to_document_view_7a56afad") : t("open_project_board_d686cb7e"))
       .setIcon(boardActive ? 'file-text' : 'columns-3')
       .onClick(() => this.switchTab(boardActive ? 'document' : 'board')));
-    menu.addItem((item) => item.setTitle('新建页面').setIcon('square-plus').onClick(() => void this.createPage()));
-    menu.addItem((item) => item.setTitle('查找当前页面文本').setIcon('search').onClick(() => this.openFindReplace(false)));
-    menu.addItem((item) => item.setTitle('查找并替换').setIcon('replace').onClick(() => this.openFindReplace(true)));
+    menu.addItem((item) => item.setTitle(t("new_page_64451e31")).setIcon('square-plus').onClick(() => void this.createPage()));
+    menu.addItem((item) => item.setTitle(t("find_text_in_current_page_cf55deac")).setIcon('search').onClick(() => this.openFindReplace(false)));
+    menu.addItem((item) => item.setTitle(t("find_and_replace_74b04f33")).setIcon('replace').onClick(() => this.openFindReplace(true)));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle(this.focusMode ? '退出专注模式' : '进入专注模式').setIcon(this.focusMode ? 'minimize-2' : 'maximize-2').onClick(() => this.toggleFocusMode()));
+    menu.addItem((item) => item.setTitle(this.focusMode ? t("exit_focus_mode_3f6477ba") : t("enter_focus_mode_b2c1df34")).setIcon(this.focusMode ? 'minimize-2' : 'maximize-2').onClick(() => this.toggleFocusMode()));
     menu.addItem((item) => item
-      .setTitle('以 Obsidian 原生 Markdown 打开')
+      .setTitle(t("open_as_obsidian_native_markdown_f5976891"))
       .setIcon('file-text')
       .setDisabled(!this.page || !this.plugin.generatedMarkdownPathForPage(this.page.id))
       .onClick(() => void this.plugin.openPageAsNativeMarkdown(this.page.id, this.leaf)));
     menu.addSeparator();
     this.addExportMenuItems(menu);
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('诊断与恢复').setIcon('stethoscope').onClick(() => new BlockspaceDiagnosticsModal(this.app, this.plugin).open()));
+    menu.addItem((item) => item.setTitle(t("diagnostics_and_recovery_18b77e4a")).setIcon('stethoscope').onClick(() => new BlockspaceDiagnosticsModal(this.app, this.plugin).open()));
     menu.showAtMouseEvent(event);
   }
 
@@ -4694,11 +4635,11 @@ class BlockspaceView extends ItemView {
     // Probe on a clone so a page with nothing to fix never lands a no-op undo step.
     const changed = Core.reparseInlineMarkdown(Core.clonePage(this.page));
     if (!changed) {
-      new Notice('当前页面没有需要解析的 Markdown 文本');
+      new Notice(t("no_markdown_text_to_parse_in_the_current_page_0ca89aa1"));
       return;
     }
-    this.performMutation('解析 Markdown 行内格式', (page) => { Core.reparseInlineMarkdown(page); });
-    new Notice(`已解析 ${changed} 个块中的 Markdown 链接与格式（Ctrl/Cmd + Z 撤销）`);
+    this.performMutation(t("parse_markdown_inline_formatting_6978ce3d"), (page) => { Core.reparseInlineMarkdown(page); });
+    new Notice(t("parsed_markdown_links_and_formatting_in_0_blocks_5d9853ad", [changed]));
   }
 
   showIconMenu(event) {
@@ -4706,33 +4647,33 @@ class BlockspaceView extends ItemView {
     const menu = new Menu();
     for (const option of ICON_OPTIONS) {
       menu.addItem((item) => item
-        .setTitle(`${option} 使用此图标`)
+        .setTitle(t("0_use_this_icon_30a9dda3", [option]))
         .setChecked(this.page.icon === option)
-        .onClick(() => this.performMutation('更换页面图标', (page) => { page.icon = option; })));
+        .onClick(() => this.performMutation(t("change_page_icon_bcefdd2c"), (page) => { page.icon = option; })));
     }
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('自定义图标…').setIcon('smile-plus').onClick(() => {
+    menu.addItem((item) => item.setTitle(t("custom_icon_c834d6eb")).setIcon('smile-plus').onClick(() => {
       new PageIconModal(this.app, this.page.icon, (value) => {
-        this.performMutation('更换页面图标', (page) => { page.icon = value; });
+        this.performMutation(t("change_page_icon_bcefdd2c"), (page) => { page.icon = value; });
       }).open();
     }));
     menu.addItem((item) => item
-      .setTitle('移除图标')
+      .setTitle(t("remove_icon_ba73b35b"))
       .setIcon('circle-slash')
       .setDisabled(!this.page.icon)
-      .onClick(() => this.performMutation('移除页面图标', (page) => { page.icon = ''; })));
+      .onClick(() => this.performMutation(t("remove_page_icon_0ece4bfa"), (page) => { page.icon = ''; })));
     menu.showAtMouseEvent(event);
   }
 
   renderDocument(host) {
     if (!this.page) {
-      host.createDiv({ cls: 'bs-empty-state', text: '没有可显示的页面' });
+      host.createDiv({ cls: 'bs-empty-state', text: t("no_page_to_display_c976f7a7") });
       return;
     }
     const scroll = host.createDiv({ cls: 'bs-document-scroll' });
     const pageShell = scroll.createDiv({ cls: 'bs-page-shell is-coverless' });
     const header = pageShell.createDiv({ cls: 'bs-page-header' });
-    const title = header.createDiv({ cls: 'bs-page-title', attr: { contenteditable: 'true', role: 'textbox', 'aria-label': '页面标题', 'aria-multiline': 'false' }, text: this.page.title });
+    const title = header.createDiv({ cls: 'bs-page-title', attr: { contenteditable: 'true', role: 'textbox', 'aria-label': t("page_title_5ce2d4cc"), 'aria-multiline': 'false' }, text: this.page.title });
     const syncTitleDensity = () => {
       const length = Array.from(String(title.textContent || '')).length;
       title.toggleClass('is-long-title', length > 34);
@@ -4740,21 +4681,21 @@ class BlockspaceView extends ItemView {
     };
     syncTitleDensity();
     title.addEventListener('paste', (event) => this.pastePlainText(event));
-    title.addEventListener('beforeinput', () => this.beginLiveEdit('编辑页面标题', 'title'));
+    title.addEventListener('beforeinput', () => this.beginLiveEdit(t("edit_page_title_4079da44"), 'title'));
     title.addEventListener('focus', () => {
       if (this.selectedBlockIds.size) this.clearBlockSelection();
     });
-    title.addEventListener('compositionstart', () => { this.isComposing = true; this.beginLiveEdit('编辑页面标题', 'title'); });
+    title.addEventListener('compositionstart', () => { this.isComposing = true; this.beginLiveEdit(t("edit_page_title_4079da44"), 'title'); });
     title.addEventListener('compositionend', () => {
       this.isComposing = false;
-      this.page.title = String(title.textContent || '').trimStart() || 'Untitled';
+      this.page.title = String(title.textContent || '').trimStart() || t('untitled');
       syncTitleDensity();
       this.refreshNativeHeader();
       this.afterLiveEdit({ commitNow: true });
     });
     title.addEventListener('input', () => {
-      this.beginLiveEdit('编辑页面标题', 'title');
-      this.page.title = String(title.textContent || '').trimStart() || 'Untitled';
+      this.beginLiveEdit(t("edit_page_title_4079da44"), 'title');
+      this.page.title = String(title.textContent || '').trimStart() || t('untitled');
       syncTitleDensity();
       this.refreshNativeHeader();
       this.afterLiveEdit();
@@ -4779,9 +4720,9 @@ class BlockspaceView extends ItemView {
       const hint = pageShell.createDiv({ cls: 'bs-empty-document-hint' });
       const hintIcon = hint.createSpan({ cls: 'bs-empty-document-hint-icon' });
       setIcon(hintIcon, 'sparkles');
-      hint.createSpan({ text: '输入 / 选择块类型，也可以直接粘贴 Markdown 内容' });
+      hint.createSpan({ text: t("type_to_choose_a_block_type_or_paste_markdown_co_ba2bdb84") });
     }
-    const addBottom = createButton(pageShell, 'bs-add-bottom', '添加块', 'plus', '添加一个块');
+    const addBottom = createButton(pageShell, 'bs-add-bottom', t("add_block_c83b027a"), 'plus', t("add_a_block_73e736a3"));
     addBottom.addEventListener('click', () => this.insertBlock(this.getVisibleBlocks().length));
   }
 
@@ -4813,7 +4754,7 @@ class BlockspaceView extends ItemView {
         attr: {
           'data-wrap-mode': imageData.wrapMode,
           'data-wrap-text-align': imageData.wrapTextAlign,
-          'aria-label': imageData.wrapMode === 'square-left' ? '图片左侧文字环绕' : '图片右侧文字环绕',
+          'aria-label': imageData.wrapMode === 'square-left' ? t("wrap_text_to_the_left_of_the_image_1dd70385") : t("wrap_text_to_the_right_of_the_image_7914a283"),
         },
       });
       flow.style.setProperty('--bs-image-wrap-width', `${imageData.width || 320}px`);
@@ -4843,7 +4784,7 @@ class BlockspaceView extends ItemView {
     const label = header.createSpan({ cls: 'bs-properties-title' });
     const propertyIcon = label.createSpan({ cls: 'bs-property-icon' });
     setIcon(propertyIcon, 'list-filter');
-    label.createSpan({ text: '属性' });
+    label.createSpan({ text: t("properties_86de52d1") });
     const summary = header.createSpan({ cls: 'bs-properties-summary' });
     if (!this.propertiesExpanded) {
       const statusLabel = STATUS_LABELS[this.page.properties.status];
@@ -4851,25 +4792,25 @@ class BlockspaceView extends ItemView {
       summary.createSpan({
         cls: `bs-property-chip is-${this.page.properties.status}`,
         text: statusLabel,
-        attr: { 'data-property': 'status', title: `状态：${statusLabel}` },
+        attr: { 'data-property': 'status', title: t("status_0_71766b08", [statusLabel]) },
       });
       summary.createSpan({
         cls: `bs-property-chip priority-${this.page.properties.priority}`,
         text: priorityLabel,
-        attr: { 'data-property': 'priority', title: `优先级：${priorityLabel}` },
+        attr: { 'data-property': 'priority', title: t("priority_0_953e82d9", [priorityLabel]) },
       });
       for (const tag of this.page.properties.tags.slice(0, 2)) {
         summary.createSpan({
           cls: 'bs-property-chip is-tag',
           text: `#${tag}`,
-          attr: { 'data-property': 'tag', title: `标签：${tag}` },
+          attr: { 'data-property': 'tag', title: t("tags_0_66a02b22", [tag]) },
         });
       }
       if (this.page.properties.tags.length > 2) {
         summary.createSpan({
           cls: 'bs-property-chip is-more',
           text: `+${this.page.properties.tags.length - 2}`,
-          attr: { 'data-property': 'more', title: `另有 ${this.page.properties.tags.length - 2} 个标签` },
+          attr: { 'data-property': 'more', title: t("0_more_tags_a01d0135", [this.page.properties.tags.length - 2]) },
         });
       }
     }
@@ -4899,12 +4840,12 @@ class BlockspaceView extends ItemView {
     };
 
     const addDeleteMenu = (valueEl, labelText, onDelete) => {
-      const button = createButton(valueEl, 'bs-property-row-menu', `${labelText}属性菜单`, 'ellipsis');
+      const button = createButton(valueEl, 'bs-property-row-menu', t("0_property_menu_753bbfc2", [labelText]), 'ellipsis');
       button.addEventListener('click', (event) => {
         event.stopPropagation();
         const menu = new Menu();
         menu.addItem((item) => item
-          .setTitle('删除属性')
+          .setTitle(t("delete_property_53379235"))
           .setIcon('trash-2')
           .onClick(onDelete));
         menu.showAtMouseEvent(event);
@@ -4912,38 +4853,38 @@ class BlockspaceView extends ItemView {
       return button;
     };
 
-    const statusValue = makeProperty('状态', 'circle-dot', 'status').valueEl;
+    const statusValue = makeProperty(t("status_6320b4a8"), 'circle-dot', 'status').valueEl;
     const statusControl = statusValue.createDiv({
       cls: 'bs-property-control is-status',
       attr: { 'data-state': this.page.properties.status },
     });
-    const statusSelect = statusControl.createEl('select', { cls: 'bs-select', attr: { 'aria-label': '状态' } });
+    const statusSelect = statusControl.createEl('select', { cls: 'bs-select', attr: { 'aria-label': t("status_6320b4a8") } });
     for (const status of Core.PAGE_STATUSES) statusSelect.createEl('option', { value: status, text: STATUS_LABELS[status] });
     statusSelect.value = this.page.properties.status;
     statusSelect.addEventListener('change', () => {
-      this.performMutation('修改页面状态', (page) => { page.properties.status = statusSelect.value; }, { render: false });
+      this.performMutation(t("change_page_status_2af8342f"), (page) => { page.properties.status = statusSelect.value; }, { render: false });
       statusControl.dataset.state = statusSelect.value;
     });
 
-    const priorityValue = makeProperty('优先级', 'signal', 'priority').valueEl;
+    const priorityValue = makeProperty(t("priority_565d6460"), 'signal', 'priority').valueEl;
     const priorityControl = priorityValue.createDiv({
       cls: 'bs-property-control is-priority',
       attr: { 'data-state': this.page.properties.priority },
     });
-    const prioritySelect = priorityControl.createEl('select', { cls: 'bs-select', attr: { 'aria-label': '优先级' } });
+    const prioritySelect = priorityControl.createEl('select', { cls: 'bs-select', attr: { 'aria-label': t("priority_565d6460") } });
     for (const priority of Core.PAGE_PRIORITIES) prioritySelect.createEl('option', { value: priority, text: PRIORITY_LABELS[priority] });
     prioritySelect.value = this.page.properties.priority;
     prioritySelect.addEventListener('change', () => {
-      this.performMutation('修改页面优先级', (page) => { page.properties.priority = prioritySelect.value; }, { render: false });
+      this.performMutation(t("change_page_priority_6f1193d4"), (page) => { page.properties.priority = prioritySelect.value; }, { render: false });
       priorityControl.dataset.state = prioritySelect.value;
     });
 
-    const tagValue = makeProperty('标签', 'tag', 'tags').valueEl;
+    const tagValue = makeProperty(t("tags_1d0fd5f9"), 'tag', 'tags').valueEl;
     const tagControl = tagValue.createDiv({ cls: 'bs-property-control is-tags' });
-    const tagInput = tagControl.createEl('input', { cls: 'bs-property-input', attr: { type: 'text', placeholder: '输入标签，用逗号分隔', 'aria-label': '标签' } });
+    const tagInput = tagControl.createEl('input', { cls: 'bs-property-input', attr: { type: 'text', placeholder: t("enter_tags_separated_by_commas_0097233e"), 'aria-label': t("tags_1d0fd5f9") } });
     tagInput.value = this.page.properties.tags.join(', ');
     tagInput.addEventListener('change', () => {
-      this.performMutation('修改页面标签', (page) => {
+      this.performMutation(t("change_page_tags_fd14c4f7"), (page) => {
         page.properties.tags = Array.from(new Set(tagInput.value.split(',').map((tag) => tag.trim()).filter(Boolean)));
       }, { render: false });
     });
@@ -4979,21 +4920,21 @@ class BlockspaceView extends ItemView {
         this.contentEl.ownerDocument.defaultView.requestAnimationFrame(resize);
       }
       input.addEventListener('change', () => {
-        this.performMutation(`修改页面${labelText}`, (page) => {
+        this.performMutation(t("change_page_0_528faae2", [labelText]), (page) => {
           page.properties[propertyName] = String(input.value || '').trim();
         }, { render: false });
       });
       addDeleteMenu(propertyValue, labelText, () => {
-        this.performMutation(`删除页面${labelText}`, (page) => {
+        this.performMutation(t("delete_page_0_5ef6062c", [labelText]), (page) => {
           page.properties[propertyName] = '';
         });
       });
     };
 
-    makeTextProperty('source', '来源', 'link-2', { type: 'url', placeholder: 'https://…' });
-    makeTextProperty('author', '作者', 'user-round');
-    makeTextProperty('publishedAt', '发布日期', 'calendar-days');
-    makeTextProperty('description', '摘要', 'align-left', { multiline: true });
+    makeTextProperty('source', t("source_a488e93d"), 'link-2', { type: 'url', placeholder: 'https://…' });
+    makeTextProperty('author', t("author_7d4146ca"), 'user-round');
+    makeTextProperty('publishedAt', t("published_87d080e7"), 'calendar-days');
+    makeTextProperty('description', t("summary_21c04b2e"), 'align-left', { multiline: true });
 
     const updateCustomProperty = (propertyId, labelText, updater, options = {}) => this.performMutation(
       labelText,
@@ -5009,7 +4950,7 @@ class BlockspaceView extends ItemView {
       const propertyRow = makeProperty('', details.icon, property.id, 'is-custom-property');
       const nameInput = propertyRow.labelEl.createEl('input', {
         cls: 'bs-property-name-input',
-        attr: { type: 'text', value: property.name, 'aria-label': `属性名称：${property.name}` },
+        attr: { type: 'text', value: property.name, 'aria-label': t("property_name_0_8ffecc0d", [property.name]) },
       });
       nameInput.value = property.name;
       nameInput.addEventListener('keydown', (event) => {
@@ -5029,16 +4970,16 @@ class BlockspaceView extends ItemView {
           .map((candidate) => candidate.name);
         if (!Core.isValidCustomPropertyName(name, otherNames)) {
           nameInput.value = property.name;
-          new Notice('属性名称不能为空、不能重复，也不能使用内置属性名');
+          new Notice(t("property_names_must_be_nonempty_unique_and_canno_8392ff80"));
           return;
         }
-        updateCustomProperty(property.id, `重命名属性 ${property.name}`, (target) => { target.name = name; }, { render: false });
+        updateCustomProperty(property.id, t("rename_property_0_eeed9f1f", [property.name]), (target) => { target.name = name; }, { render: false });
       });
 
       const control = propertyRow.valueEl.createDiv({ cls: `bs-property-control is-custom is-${property.type}` });
       const commitValue = (value) => updateCustomProperty(
         property.id,
-        `修改属性 ${property.name}`,
+        t("change_property_0_b607b0c3", [property.name]),
         (target) => { target.value = value; },
         { render: false },
       );
@@ -5049,10 +4990,10 @@ class BlockspaceView extends ItemView {
           attr: { type: 'checkbox', 'aria-label': property.name },
         });
         input.checked = Boolean(property.value);
-        checkboxLabel.createSpan({ text: input.checked ? '是' : '否', cls: 'bs-property-checkbox-label' });
+        checkboxLabel.createSpan({ text: input.checked ? t("yes_b5141d3d") : t("no_0c70665b"), cls: 'bs-property-checkbox-label' });
         input.addEventListener('change', () => {
           const label = checkboxLabel.querySelector('.bs-property-checkbox-label');
-          if (label) label.textContent = input.checked ? '是' : '否';
+          if (label) label.textContent = input.checked ? t("yes_b5141d3d") : t("no_0c70665b");
           commitValue(input.checked);
         });
       } else {
@@ -5061,7 +5002,7 @@ class BlockspaceView extends ItemView {
           attr: {
             type: property.type === 'number' ? 'number' : property.type === 'date' ? 'date' : property.type === 'datetime' ? 'datetime-local' : 'text',
             'aria-label': property.name,
-            placeholder: property.type === 'list' ? '输入值，用逗号分隔' : '',
+            placeholder: property.type === 'list' ? t("enter_values_separated_by_commas_0e3f3073") : '',
           },
         });
         input.value = property.type === 'list'
@@ -5074,7 +5015,7 @@ class BlockspaceView extends ItemView {
         });
       }
 
-      const menuButton = createButton(propertyRow.valueEl, 'bs-property-row-menu', `${property.name}属性菜单`, 'ellipsis');
+      const menuButton = createButton(propertyRow.valueEl, 'bs-property-row-menu', t("0_property_menu_753bbfc2", [property.name]), 'ellipsis');
       menuButton.addEventListener('click', (event) => {
         event.stopPropagation();
         const menu = new Menu();
@@ -5086,7 +5027,7 @@ class BlockspaceView extends ItemView {
             .setChecked(type === property.type)
             .onClick(() => {
               if (type === property.type) return;
-              updateCustomProperty(property.id, `更改属性类型 ${property.name}`, (target) => {
+              updateCustomProperty(property.id, t("change_property_type_0_343c48cf", [property.name]), (target) => {
                 target.type = type;
                 target.value = Core.normalizeCustomPropertyValue(type, target.value);
               });
@@ -5094,10 +5035,10 @@ class BlockspaceView extends ItemView {
         }
         menu.addSeparator();
         menu.addItem((item) => item
-          .setTitle('删除属性')
+          .setTitle(t("delete_property_53379235"))
           .setIcon('trash-2')
           .onClick(() => {
-            this.performMutation(`删除属性 ${property.name}`, (page) => {
+            this.performMutation(t("delete_property_0_d908fcf4", [property.name]), (page) => {
               page.properties.custom = (page.properties.custom || [])
                 .filter((candidate) => candidate.id !== property.id);
             });
@@ -5106,7 +5047,7 @@ class BlockspaceView extends ItemView {
       });
     }
 
-    const addProperty = createButton(body, 'bs-property-add', '添加属性', 'plus', '添加属性');
+    const addProperty = createButton(body, 'bs-property-add', t("add_property_820ff79e"), 'plus', t("add_property_820ff79e"));
     addProperty.addEventListener('click', () => {
       const existingDraft = body.querySelector('.bs-property-row.is-new-property');
       if (existingDraft) {
@@ -5120,26 +5061,26 @@ class BlockspaceView extends ItemView {
       setIcon(icon, 'plus');
       const nameInput = draftLabel.createEl('input', {
         cls: 'bs-property-name-input',
-        attr: { type: 'text', placeholder: '属性名称', 'aria-label': '新属性名称' },
+        attr: { type: 'text', placeholder: t("property_name_aac14899"), 'aria-label': t("new_property_name_deb5e5e4") },
       });
       const draftValue = draft.createDiv({ cls: 'bs-property-value' });
-      const typeSelect = draftValue.createEl('select', { cls: 'bs-select bs-property-type-select', attr: { 'aria-label': '属性类型' } });
+      const typeSelect = draftValue.createEl('select', { cls: 'bs-select bs-property-type-select', attr: { 'aria-label': t("property_type_7be7ee5f") } });
       for (const type of Core.CUSTOM_PROPERTY_TYPES) {
         typeSelect.createEl('option', { value: type, text: CUSTOM_PROPERTY_TYPE_DETAILS[type].label });
       }
-      const confirm = createButton(draftValue, 'bs-property-draft-action is-confirm', '确认添加属性', 'check');
-      const cancel = createButton(draftValue, 'bs-property-draft-action', '取消添加属性', 'x');
+      const confirm = createButton(draftValue, 'bs-property-draft-action is-confirm', t("confirm_new_property_7fa5fff4"), 'check');
+      const cancel = createButton(draftValue, 'bs-property-draft-action', t("cancel_new_property_6e01311c"), 'x');
       const removeDraft = () => draft.remove();
       const commitDraft = () => {
         const name = String(nameInput.value || '').trim().slice(0, 100);
         if (!Core.isValidCustomPropertyName(name, customProperties.map((property) => property.name))) {
-          new Notice('属性名称不能为空、不能重复，也不能使用内置属性名');
+          new Notice(t("property_names_must_be_nonempty_unique_and_canno_8392ff80"));
           nameInput.focus();
           return;
         }
         const type = Core.CUSTOM_PROPERTY_TYPES.includes(typeSelect.value) ? typeSelect.value : 'text';
         const value = type === 'list' ? [] : type === 'number' ? null : type === 'checkbox' ? false : '';
-        this.performMutation(`添加属性 ${name}`, (page) => {
+        this.performMutation(t("add_property_0_83c8e87e", [name]), (page) => {
           if (!Array.isArray(page.properties.custom)) page.properties.custom = [];
           page.properties.custom.push({ id: Core.randomId('property'), name, type, value });
         });
@@ -5194,15 +5135,15 @@ class BlockspaceView extends ItemView {
   }
 
   async writeAttachmentFile(file) {
-    if (!file || typeof file.arrayBuffer !== 'function') throw new Error('无法读取附件内容');
+    if (!file || typeof file.arrayBuffer !== 'function') throw new Error(t("could_not_read_attachment_content_69c92a55"));
     const path = await this.availableAttachmentPath(file.name);
     const buffer = await file.arrayBuffer();
     if (typeof this.app.vault.createBinary === 'function') await this.app.vault.createBinary(path, buffer);
     else if (typeof this.app.vault.adapter.writeBinary === 'function') await this.app.vault.adapter.writeBinary(path, buffer);
-    else throw new Error('当前 Obsidian 版本不支持写入二进制附件');
+    else throw new Error(t("this_obsidian_version_cannot_write_binary_attach_39170f65"));
     return {
       path,
-      name: path.split('/').pop() || file.name || '附件',
+      name: path.split('/').pop() || file.name || t("attachment_c7225dbf"),
       mime: String(file.type || ''),
       size: Math.max(0, Number(file.size) || buffer.byteLength || 0),
       type: advancedTypeForFile(file.name || path, file.type),
@@ -5262,7 +5203,7 @@ class BlockspaceView extends ItemView {
     const block = this.remoteUrlBlock(link.target);
     const current = Core.getBlock(this.page, anchorId);
     const replaceEmpty = current && current.type === 'paragraph' && !current.text && !current.children.length;
-    this.performMutation('插入网络内容', (page) => {
+    this.performMutation(t("insert_web_content_90b4c55d"), (page) => {
       Core.insertBlockAfter(page, anchorId, block);
       if (replaceEmpty) Core.removeSubtrees(page, [anchorId]);
     });
@@ -5277,18 +5218,18 @@ class BlockspaceView extends ItemView {
       for (const file of sourceFiles) records.push(await this.writeAttachmentFile(file));
     } catch (error) {
       console.error('Blockspace: attachment import failed', error);
-      new Notice(`附件导入失败：${error && error.message ? error.message : error}`);
+      new Notice(t("attachment_import_failed_0_60f6acf8", [error && error.message ? error.message : error]));
       return [];
     }
     const blocks = records.map((record) => this.uploadedFileBlock(record));
     const current = Core.getBlock(this.page, anchorId);
     const replaceEmpty = current && current.type === 'paragraph' && !current.text && !current.children.length;
     let insertedIds = [];
-    this.performMutation(records.length > 1 ? '插入多个附件' : '插入附件', (page) => {
+    this.performMutation(records.length > 1 ? t("insert_multiple_attachments_9987d186") : t("insert_attachment_26172610"), (page) => {
       insertedIds = Core.insertBlocksAfter(page, anchorId, blocks).map((block) => block.id);
       if (replaceEmpty) Core.removeSubtrees(page, [anchorId]);
     });
-    new Notice(records.length > 1 ? `已导入 ${records.length} 个附件` : `已导入 ${records[0].name}`);
+    new Notice(records.length > 1 ? t("imported_0_attachments_917ce4e5", [records.length]) : t("imported_0_a8bb9a7a", [records[0].name]));
     return insertedIds;
   }
 
@@ -5299,11 +5240,11 @@ class BlockspaceView extends ItemView {
       record = await this.writeAttachmentFile(file);
     } catch (error) {
       console.error('Blockspace: attachment replacement failed', error);
-      new Notice(`附件写入失败：${error && error.message ? error.message : error}`);
+      new Notice(t("could_not_write_attachment_0_1d42689a", [error && error.message ? error.message : error]));
       return false;
     }
     const replacement = this.uploadedFileBlock(record);
-    this.performMutation('替换块文件', (page) => {
+    this.performMutation(t("replace_block_file_36ae0e69"), (page) => {
       const target = Core.getBlock(page, blockId);
       if (!target) return;
       target.type = replacement.type;
@@ -5325,7 +5266,7 @@ class BlockspaceView extends ItemView {
 
   insertStructuredTableRow(blockId, rowId, position = 'after', focusColumnId = null) {
     const newRowId = Core.randomId('row');
-    this.updateAdvancedBlock(blockId, '添加表格行', (target) => {
+    this.updateAdvancedBlock(blockId, t("add_table_row_bf23d102"), (target) => {
       const cells = {};
       for (const column of target.data.columns) cells[column.id] = '';
       const currentIndex = target.data.rows.findIndex((row) => row.id === rowId);
@@ -5353,15 +5294,15 @@ class BlockspaceView extends ItemView {
     const row = data && data.rows.find((entry) => entry.id === rowId);
     if (!block || !row) return;
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle('在上方插入行').setIcon('arrow-up-to-line').onClick(() => {
+    menu.addItem((item) => item.setTitle(t("insert_row_above_ccea8c05")).setIcon('arrow-up-to-line').onClick(() => {
       this.insertStructuredTableRow(blockId, rowId, 'before');
     }));
-    menu.addItem((item) => item.setTitle('在下方插入行').setIcon('arrow-down-to-line').onClick(() => {
+    menu.addItem((item) => item.setTitle(t("insert_row_below_7c131f17")).setIcon('arrow-down-to-line').onClick(() => {
       this.insertStructuredTableRow(blockId, rowId, 'after');
     }));
-    menu.addItem((item) => item.setTitle('复制此行').setIcon('copy-plus').onClick(() => {
+    menu.addItem((item) => item.setTitle(t("duplicate_this_row_457f9420")).setIcon('copy-plus').onClick(() => {
       const copyId = Core.randomId('row');
-      this.updateAdvancedBlock(blockId, '复制表格行', (target) => {
+      this.updateAdvancedBlock(blockId, t("duplicate_table_row_d0ddf233"), (target) => {
         const index = target.data.rows.findIndex((entry) => entry.id === rowId);
         if (index < 0) return;
         target.data.rows.splice(index + 1, 0, { id: copyId, cells: { ...target.data.rows[index].cells } });
@@ -5369,11 +5310,11 @@ class BlockspaceView extends ItemView {
     }));
     menu.addSeparator();
     menu.addItem((item) => item
-      .setTitle('删除此行')
+      .setTitle(t("delete_this_row_9de7d82f"))
       .setIcon('trash-2')
       .setDisabled(data.rows.length <= 1)
       .onClick(() => {
-        this.updateAdvancedBlock(blockId, '删除表格行', (target) => {
+        this.updateAdvancedBlock(blockId, t("delete_table_row_27707985"), (target) => {
           target.data.rows = target.data.rows.filter((entry) => entry.id !== rowId);
         }, { render: true });
       }));
@@ -5389,13 +5330,13 @@ class BlockspaceView extends ItemView {
     if (!block || !column) return;
     const menu = new Menu();
     for (const [align, label, icon] of [
-      ['left', '左对齐', 'align-left'],
-      ['center', '居中', 'align-center'],
-      ['right', '右对齐', 'align-right'],
+      ['left', t("align_left_2bd74486"), 'align-left'],
+      ['center', t("center_4cc3885c"), 'align-center'],
+      ['right', t("align_right_331c711e"), 'align-right'],
     ]) {
       menu.addItem((item) => {
         item.setTitle(label).setIcon(icon).onClick(() => {
-          this.updateAdvancedBlock(blockId, '修改表格列对齐', (target) => {
+          this.updateAdvancedBlock(blockId, t("change_table_column_alignment_2e8a3d84"), (target) => {
             const targetColumn = target.data.columns.find((entry) => entry.id === columnId);
             if (targetColumn) targetColumn.align = align;
           }, { render: true });
@@ -5406,25 +5347,25 @@ class BlockspaceView extends ItemView {
     menu.addSeparator();
     const insertColumn = (position) => {
       const newColumnId = Core.randomId('column');
-      this.updateAdvancedBlock(blockId, '添加表格列', (target) => {
+      this.updateAdvancedBlock(blockId, t("add_table_column_7c812150"), (target) => {
         const currentIndex = target.data.columns.findIndex((entry) => entry.id === columnId);
         const index = currentIndex < 0
           ? target.data.columns.length
           : currentIndex + (position === 'right' ? 1 : 0);
         target.data.columns.splice(index, 0, {
           id: newColumnId,
-          name: `列 ${target.data.columns.length + 1}`,
+          name: t("column_0_94ab35a6", [target.data.columns.length + 1]),
           align: 'left',
           width: 160,
         });
         for (const row of target.data.rows) row.cells[newColumnId] = '';
       }, { render: true });
     };
-    menu.addItem((item) => item.setTitle('在左侧插入列').setIcon('panel-left-open').onClick(() => insertColumn('left')));
-    menu.addItem((item) => item.setTitle('在右侧插入列').setIcon('panel-right-open').onClick(() => insertColumn('right')));
+    menu.addItem((item) => item.setTitle(t("insert_column_to_the_left_927b7fa5")).setIcon('panel-left-open').onClick(() => insertColumn('left')));
+    menu.addItem((item) => item.setTitle(t("insert_column_to_the_right_8ae98f3b")).setIcon('panel-right-open').onClick(() => insertColumn('right')));
     if (column.width) {
-      menu.addItem((item) => item.setTitle('恢复自动列宽').setIcon('minimize-2').onClick(() => {
-        this.updateAdvancedBlock(blockId, '恢复表格自动列宽', (target) => {
+      menu.addItem((item) => item.setTitle(t("reset_column_width_to_automatic_c53b99ac")).setIcon('minimize-2').onClick(() => {
+        this.updateAdvancedBlock(blockId, t("reset_table_column_widths_to_automatic_76fb367a"), (target) => {
           const targetColumn = target.data.columns.find((entry) => entry.id === columnId);
           if (targetColumn) targetColumn.width = 0;
         }, { render: true });
@@ -5432,11 +5373,11 @@ class BlockspaceView extends ItemView {
     }
     menu.addSeparator();
     menu.addItem((item) => item
-      .setTitle('删除此列')
+      .setTitle(t("delete_this_column_31fe6ef5"))
       .setIcon('trash-2')
       .setDisabled(data.columns.length <= 1)
       .onClick(() => {
-        this.updateAdvancedBlock(blockId, '删除表格列', (target) => {
+        this.updateAdvancedBlock(blockId, t("delete_table_column_bc989262"), (target) => {
           target.data.columns = target.data.columns.filter((entry) => entry.id !== columnId);
           for (const row of target.data.rows) delete row.cells[columnId];
         }, { render: true });
@@ -5472,19 +5413,19 @@ class BlockspaceView extends ItemView {
       const content = cell.createDiv({ cls: 'bs-table-heading-content' });
       const input = content.createEl('input', {
         cls: 'bs-table-cell-input bs-table-heading-input',
-        attr: { type: 'text', 'aria-label': `编辑列标题：${column.name || '未命名列'}` },
+        attr: { type: 'text', 'aria-label': t("edit_column_heading_0_ab0c2ad7", [column.name || t("untitled_column_27f7c387")]) },
       });
       input.value = column.name;
       input.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改表格列标题', (target) => {
+        this.updateAdvancedBlock(block.id, t("change_table_column_heading_b9dafc8f"), (target) => {
           const targetColumn = target.data.columns.find((entry) => entry.id === column.id);
           if (targetColumn) targetColumn.name = input.value;
         });
       });
-      const menuButton = createButton(content, 'bs-table-column-menu', `打开“${column.name || '未命名列'}”列菜单`, 'chevron-down');
+      const menuButton = createButton(content, 'bs-table-column-menu', t("open_menu_for_column_0_3c8e86c3", [column.name || t("untitled_column_27f7c387")]), 'chevron-down');
       menuButton.addEventListener('click', (event) => this.showStructuredTableColumnMenu(event, block.id, column.id));
       cell.addEventListener('contextmenu', (event) => this.showStructuredTableColumnMenu(event, block.id, column.id));
-      const resize = cell.createDiv({ cls: 'bs-table-column-resize', attr: { role: 'separator', 'aria-label': `调整“${column.name || '未命名列'}”列宽`, tabindex: '0' } });
+      const resize = cell.createDiv({ cls: 'bs-table-column-resize', attr: { role: 'separator', 'aria-label': t("resize_column_0_a5108469", [column.name || t("untitled_column_27f7c387")]), tabindex: '0' } });
       resize.addEventListener('pointerdown', (event) => {
         if (event.button !== 0) return;
         event.preventDefault();
@@ -5504,7 +5445,7 @@ class BlockspaceView extends ItemView {
           ownerWindow.removeEventListener('pointerup', finish);
           const width = Number(resize.dataset.pendingWidth) || Math.round(startWidth);
           delete resize.dataset.pendingWidth;
-          this.updateAdvancedBlock(block.id, '调整表格列宽', (target) => {
+          this.updateAdvancedBlock(block.id, t("resize_table_column_701bb2e7"), (target) => {
             const targetColumn = target.data.columns.find((entry) => entry.id === column.id);
             if (targetColumn) targetColumn.width = width;
           });
@@ -5518,7 +5459,7 @@ class BlockspaceView extends ItemView {
       const rowEl = body.createEl('tr');
       rowEl.dataset.rowId = row.id;
       const rowHandle = rowEl.createEl('td', { cls: 'bs-table-row-handle-cell' });
-      const rowMenu = createButton(rowHandle, 'bs-table-row-menu', `打开第 ${rowIndex + 1} 行菜单`, 'grip-vertical');
+      const rowMenu = createButton(rowHandle, 'bs-table-row-menu', t("open_menu_for_row_0_28d267b8", [rowIndex + 1]), 'grip-vertical');
       rowMenu.addEventListener('click', (event) => this.showStructuredTableRowMenu(event, block.id, row.id));
       rowHandle.addEventListener('contextmenu', (event) => this.showStructuredTableRowMenu(event, block.id, row.id));
       data.columns.forEach((column, columnIndex) => {
@@ -5531,8 +5472,8 @@ class BlockspaceView extends ItemView {
           attr: {
             rows: '1',
             'data-column-id': column.id,
-            'aria-label': `第 ${rowIndex + 1} 行，${column.name || `第 ${columnIndex + 1} 列`}`,
-            placeholder: '空',
+            'aria-label': t("row_0_1_0ea405f5", [rowIndex + 1, column.name || t("column_0_3b067d91", [columnIndex + 1])]),
+            placeholder: t("empty_2f8267a8"),
           },
         });
         input.value = row.cells[column.id] || '';
@@ -5543,7 +5484,7 @@ class BlockspaceView extends ItemView {
         resizeInput();
         input.addEventListener('input', resizeInput);
         input.addEventListener('change', () => {
-          this.updateAdvancedBlock(block.id, '编辑表格单元格', (target) => {
+          this.updateAdvancedBlock(block.id, t("edit_table_cell_24d93261"), (target) => {
             const targetRow = target.data.rows.find((entry) => entry.id === row.id);
             if (targetRow) targetRow.cells[column.id] = input.value;
           });
@@ -5565,22 +5506,22 @@ class BlockspaceView extends ItemView {
       });
     });
     const actions = frame.createDiv({ cls: 'bs-advanced-actions bs-table-actions' });
-    const addRow = createButton(actions, 'bs-table-add-row', '添加表格行', 'plus', '新建一行');
+    const addRow = createButton(actions, 'bs-table-add-row', t("add_table_row_bf23d102"), 'plus', t("new_row_c5a5421e"));
     addRow.addEventListener('click', () => {
       this.insertStructuredTableRow(block.id, data.rows[data.rows.length - 1]?.id || null, 'after');
     });
-    const addColumn = createButton(actions, 'bs-table-add-column', '添加表格列', 'columns-3', '添加列');
+    const addColumn = createButton(actions, 'bs-table-add-column', t("add_table_column_7c812150"), 'columns-3', t("add_column_143eb0bf"));
     addColumn.addEventListener('click', () => {
-      this.updateAdvancedBlock(block.id, '添加表格列', (target) => {
+      this.updateAdvancedBlock(block.id, t("add_table_column_7c812150"), (target) => {
         const id = Core.randomId('column');
-        target.data.columns.push({ id, name: `列 ${target.data.columns.length + 1}`, align: 'left', width: 160 });
+        target.data.columns.push({ id, name: t("column_0_94ab35a6", [target.data.columns.length + 1]), align: 'left', width: 160 });
         for (const row of target.data.rows) row.cells[id] = '';
       }, { render: true });
     });
   }
 
   renderAdvancedFloatingToolbar(shell, block, options = {}) {
-    const toolbar = shell.createDiv({ cls: 'bs-media-toolbar', attr: { role: 'toolbar', 'aria-label': `${ADVANCED_BLOCK_LABELS[block.type]?.label || '媒体'}操作` } });
+    const toolbar = shell.createDiv({ cls: 'bs-media-toolbar', attr: { role: 'toolbar', 'aria-label': t("0_actions_7cb40944", [ADVANCED_BLOCK_LABELS[block.type]?.label || t("media_fa33e100")]) } });
     const syncToolbar = () => syncMediaToolbarInteractive(toolbar);
     const queueToolbarSync = () => shell.ownerDocument.defaultView.setTimeout(syncToolbar, 0);
     shell.addEventListener('pointerenter', syncToolbar);
@@ -5592,9 +5533,9 @@ class BlockspaceView extends ItemView {
       const replace = createButton(
         toolbar,
         `bs-media-toolbar-button${block.type === 'image' ? ' is-icon-only bs-media-toolbar-secondary' : ''}`,
-        '上传或替换文件',
+        t("upload_or_replace_file_9fdd9517"),
         'replace',
-        '替换',
+        t("replace_131b13aa"),
       );
       fileInput = shell.createEl('input', {
         cls: 'bs-advanced-file-input',
@@ -5610,9 +5551,9 @@ class BlockspaceView extends ItemView {
       const open = createButton(
         toolbar,
         `bs-media-toolbar-button${block.type === 'image' ? ' is-icon-only bs-media-toolbar-secondary' : ''}`,
-        '打开原始内容',
+        t("open_original_content_a70e3a82"),
         'arrow-up-right',
-        '打开',
+        t("open_c771248e"),
       );
       open.addEventListener('click', (event) => void this.openStoredLink(options.openValue, event));
     }
@@ -5626,12 +5567,12 @@ class BlockspaceView extends ItemView {
       const imageData = Core.normalizeBlockData('image', block.data);
       const wrapGroup = toolbar.createDiv({
         cls: 'bs-media-toolbar-group bs-image-wrap-group',
-        attr: { role: 'group', 'aria-label': '文字环绕' },
+        attr: { role: 'group', 'aria-label': t("text_wrapping_12a0525c") },
       });
       for (const [wrapMode, icon, label, shortLabel] of [
-        ['top-bottom', 'rows-3', '独占一行：文字只在图片上方和下方', '独占'],
-        ['square-left', 'panel-left', '图片靠左：文字在右侧环绕', '靠左'],
-        ['square-right', 'panel-right', '图片靠右：文字在左侧环绕', '靠右'],
+        ['top-bottom', 'rows-3', t("full_row_text_appears_only_above_and_below_the_i_f898e8de"), t("full_row_5ee483f0")],
+        ['square-left', 'panel-left', t("image_on_the_left_text_wraps_on_the_right_c70ff536"), t("left_6548f6b5")],
+        ['square-right', 'panel-right', t("image_on_the_right_text_wraps_on_the_left_0647a9b5"), t("right_be92a99e")],
       ]) {
         const button = createButton(
           wrapGroup,
@@ -5642,7 +5583,7 @@ class BlockspaceView extends ItemView {
         );
         button.setAttribute('aria-pressed', imageData.wrapMode === wrapMode ? 'true' : 'false');
         button.addEventListener('click', () => {
-          this.updateAdvancedBlock(block.id, '修改文字环绕', (target) => {
+          this.updateAdvancedBlock(block.id, t("change_text_wrapping_996850bf"), (target) => {
             target.data.wrapMode = wrapMode;
           }, { render: true });
           refocusImage();
@@ -5652,17 +5593,17 @@ class BlockspaceView extends ItemView {
     const settings = createButton(
       toolbar,
       `bs-media-toolbar-button${block.type === 'image' ? ' is-icon-only bs-media-toolbar-secondary' : ''}`,
-      '编辑媒体设置',
+      t("edit_media_settings_38b9797c"),
       'sliders-horizontal',
-      '设置',
+      t("settings_df3d58c7"),
     );
     if (block.type === 'image') {
       const remove = createButton(
         toolbar,
         'bs-media-toolbar-button is-icon-only bs-media-toolbar-secondary is-destructive',
-        '删除图片块',
+        t("delete_image_block_667ec545"),
         'trash-2',
-        '删除',
+        t("delete_2f9daa82"),
       );
       remove.addEventListener('click', (event) => {
         event.preventDefault();
@@ -5680,18 +5621,18 @@ class BlockspaceView extends ItemView {
     const shell = host.createDiv({ cls: 'bs-media-shell bs-bookmark-shell' });
     const card = shell.createEl('button', {
       cls: `bs-bookmark-card${data.image ? ' has-cover' : ''}`,
-      attr: { type: 'button', 'aria-label': data.title ? `打开 ${data.title}` : '打开书签链接' },
+      attr: { type: 'button', 'aria-label': data.title ? t("open_0_5f36cf1b", [data.title]) : t("open_bookmark_link_bf3dddd9") },
     });
     const body = card.createDiv({ cls: 'bs-bookmark-body' });
     const copy = body.createDiv({ cls: 'bs-bookmark-copy' });
-    copy.createDiv({ cls: 'bs-bookmark-title', text: data.title || data.url || '添加书签链接' });
+    copy.createDiv({ cls: 'bs-bookmark-title', text: data.title || data.url || t("add_bookmark_link_031f9daa") });
     if (data.description) copy.createDiv({ cls: 'bs-bookmark-description', text: data.description });
     const meta = copy.createDiv({ cls: 'bs-bookmark-meta' });
     const icon = meta.createSpan({ cls: 'bs-bookmark-icon' });
     if (data.icon) {
       icon.createEl('img', { attr: { src: data.icon, alt: '', loading: 'lazy' } });
     } else setIcon(icon, 'globe-2');
-    meta.createSpan({ cls: 'bs-bookmark-url', text: data.siteName || data.url || '尚未设置地址' });
+    meta.createSpan({ cls: 'bs-bookmark-url', text: data.siteName || data.url || t("no_url_set_09e2395f") });
     const arrow = meta.createSpan({ cls: 'bs-bookmark-arrow' });
     setIcon(arrow, 'arrow-up-right');
     if (data.image) {
@@ -5710,7 +5651,7 @@ class BlockspaceView extends ItemView {
     const tools = this.renderAdvancedFloatingToolbar(shell, block, { upload: false, openValue: data.url });
     const properties = host.createEl('details', { cls: 'bs-advanced-properties' });
     if (!data.url) properties.open = true;
-    properties.createEl('summary', { text: '书签设置' });
+    properties.createEl('summary', { text: t("bookmark_settings_c701aa01") });
     tools.settings.addEventListener('click', () => {
       properties.open = !properties.open;
       if (properties.open) properties.querySelector('input')?.focus();
@@ -5724,15 +5665,15 @@ class BlockspaceView extends ItemView {
         : field.createEl('input', { attr: { type: key === 'url' || key === 'image' || key === 'icon' ? 'url' : 'text' } });
       input.value = data[key] || '';
       input.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '编辑书签', (target) => { target.data[key] = input.value.trim(); }, { render: true });
+        this.updateAdvancedBlock(block.id, t("edit_bookmark_2c1b74bf"), (target) => { target.data[key] = input.value.trim(); }, { render: true });
       });
     };
-    addField('链接', 'url');
-    addField('标题', 'title');
-    addField('描述', 'description', true);
-    addField('站点', 'siteName');
-    addField('预览图', 'image');
-    addField('站点图标', 'icon');
+    addField(t("link_305378dd"), 'url');
+    addField(t("title_c3405f8c"), 'title');
+    addField(t("description_dc2ba467"), 'description', true);
+    addField(t("site_a59fe627"), 'siteName');
+    addField(t("preview_image_1b5939aa"), 'image');
+    addField(t("site_icon_e220e37b"), 'icon');
   }
 
   renderAdvancedMediaBlock(host, block) {
@@ -5752,7 +5693,7 @@ class BlockspaceView extends ItemView {
         attr: {
           role: 'button',
           tabindex: '0',
-          'aria-label': '选择图片；选中后可调整尺寸和对齐',
+          'aria-label': t("select_an_image_then_adjust_its_size_and_alignme_964af20e"),
         },
       });
       const image = imageFrame.createEl('img', {
@@ -5792,7 +5733,7 @@ class BlockspaceView extends ItemView {
         return nextWidth;
       };
       const commitRenderedWidth = (width) => {
-        this.updateAdvancedBlock(block.id, '调整图片宽度', (target) => {
+        this.updateAdvancedBlock(block.id, t("resize_image_width_91eef91a"), (target) => {
           target.data.width = width;
           target.data.height = 0;
           target.data.widthMode = 'fixed';
@@ -5802,17 +5743,17 @@ class BlockspaceView extends ItemView {
         const isLeft = corner.endsWith('w');
         const isTop = corner.startsWith('n');
         const cornerLabel = {
-          nw: '左上角',
-          ne: '右上角',
-          sw: '左下角',
-          se: '右下角',
+          nw: t("top_left_4b715214"),
+          ne: t("top_right_d8ed5dd7"),
+          sw: t("bottom_left_cc728271"),
+          se: t("bottom_right_6897632c"),
         }[corner];
         const handle = imageFrame.createEl('button', {
           cls: `bs-image-resize-handle is-${corner}`,
           attr: {
             type: 'button',
-            'aria-label': `从${cornerLabel}等比例调整图片大小`,
-            title: '拖动等比例缩放；方向键微调',
+            'aria-label': t("resize_image_proportionally_from_the_0_f5fcc594", [cornerLabel]),
+            title: t("drag_to_resize_proportionally_use_arrow_keys_to__af35e49c"),
           },
         });
         handle.addEventListener('click', (event) => {
@@ -5900,7 +5841,7 @@ class BlockspaceView extends ItemView {
       const audioIcon = audioCard.createSpan({ cls: 'bs-audio-icon' });
       setIcon(audioIcon, 'audio-lines');
       const audioBody = audioCard.createDiv({ cls: 'bs-audio-body' });
-      audioBody.createDiv({ cls: 'bs-audio-title', text: data.title || data.path || data.url || '音频' });
+      audioBody.createDiv({ cls: 'bs-audio-title', text: data.title || data.path || data.url || t("audio_296c632e") });
       const audio = audioBody.createEl('audio', {
         cls: 'bs-advanced-audio',
         attr: { src: source, preload: 'metadata' },
@@ -5913,17 +5854,17 @@ class BlockspaceView extends ItemView {
       const embedHeader = embed.createDiv({ cls: 'bs-attachment-embed-header' });
       const icon = embedHeader.createSpan({ cls: 'bs-attachment-icon' });
       setIcon(icon, 'file-text');
-      embedHeader.createDiv({ cls: 'bs-attachment-name', text: data.name || data.path || 'PDF 文档' });
+      embedHeader.createDiv({ cls: 'bs-attachment-name', text: data.name || data.path || t("pdf_document_52ab6bf6") });
       const frameSource = `${source}${data.page ? `#page=${data.page}` : ''}`;
       const frame = embed.createEl('iframe', {
         cls: 'bs-attachment-frame',
-        attr: { src: frameSource, title: data.name || data.path || 'PDF 附件预览', loading: 'lazy' },
+        attr: { src: frameSource, title: data.name || data.path || t("pdf_attachment_preview_c7aef6bc"), loading: 'lazy' },
       });
       frame.style.height = `${data.height || 520}px`;
     } else if (block.type === 'attachment' && (data.path || data.url)) {
       const card = preview.createEl('button', {
         cls: 'bs-attachment-card',
-        attr: { type: 'button', 'aria-label': `打开附件 ${data.name || data.path || data.url}` },
+        attr: { type: 'button', 'aria-label': t("open_attachment_0_747a793f", [data.name || data.path || data.url]) },
       });
       const icon = card.createSpan({ cls: 'bs-attachment-icon' });
       setIcon(icon, fileKind === 'pdf' ? 'file-text' : 'paperclip');
@@ -5937,13 +5878,13 @@ class BlockspaceView extends ItemView {
     } else {
       const empty = preview.createEl('button', {
         cls: 'bs-advanced-empty',
-        attr: { type: 'button', 'aria-label': `添加${ADVANCED_BLOCK_LABELS[block.type]?.label || '内容'}` },
+        attr: { type: 'button', 'aria-label': t("add_0_a9c48d9d", [ADVANCED_BLOCK_LABELS[block.type]?.label || t("content_7a688306")]) },
       });
       const icon = empty.createSpan();
       setIcon(icon, ADVANCED_BLOCK_LABELS[block.type]?.icon || 'paperclip');
       const copy = empty.createDiv();
-      copy.createDiv({ cls: 'bs-advanced-empty-title', text: `添加${ADVANCED_BLOCK_LABELS[block.type]?.label || '内容'}` });
-      copy.createDiv({ cls: 'bs-advanced-empty-hint', text: '上传文件，或在设置中粘贴地址' });
+      copy.createDiv({ cls: 'bs-advanced-empty-title', text: t("add_0_a9c48d9d", [ADVANCED_BLOCK_LABELS[block.type]?.label || t("content_7a688306")]) });
+      copy.createDiv({ cls: 'bs-advanced-empty-hint', text: t("upload_a_file_or_paste_a_url_in_settings_23a1c54b") });
     }
 
     const accept = block.type === 'image' ? 'image/*'
@@ -5956,11 +5897,11 @@ class BlockspaceView extends ItemView {
     if (block.type === 'image') {
       imageCaption = shell.createEl('input', {
         cls: `bs-media-caption is-align-${data.captionAlign} is-size-${data.captionSize} is-style-${data.captionStyle}`,
-        attr: { type: 'text', placeholder: '添加图片说明…', 'aria-label': '图片说明' },
+        attr: { type: 'text', placeholder: t("add_an_image_caption_fb5edc08"), 'aria-label': t("image_caption_5e137136") },
       });
       imageCaption.value = data.caption || '';
       imageCaption.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改图片说明', (target) => { target.data.caption = imageCaption.value.trim(); }, { render: true });
+        this.updateAdvancedBlock(block.id, t("change_image_caption_edc5f9dd"), (target) => { target.data.caption = imageCaption.value.trim(); }, { render: true });
       });
       if (imageFrame) {
         imageFrame.ownerDocument.defaultView.requestAnimationFrame(() => {
@@ -5976,68 +5917,68 @@ class BlockspaceView extends ItemView {
       cls: `bs-advanced-properties${block.type === 'image' ? ' bs-image-properties' : ''}`,
     });
     if (!data.path && !data.url) properties.open = true;
-    properties.createEl('summary', { text: `${ADVANCED_BLOCK_LABELS[block.type]?.label || '媒体'}设置` });
+    properties.createEl('summary', { text: t("0_settings_e223bcc4", [ADVANCED_BLOCK_LABELS[block.type]?.label || t("media_fa33e100")]) });
     tools.settings.addEventListener('click', () => {
       properties.open = !properties.open;
       if (properties.open) properties.querySelector('input, select')?.focus();
     });
     const fields = properties.createDiv({ cls: 'bs-advanced-fields' });
     const sourceTypeField = fields.createEl('label', { cls: 'bs-advanced-field' });
-    sourceTypeField.createSpan({ text: '来源' });
+    sourceTypeField.createSpan({ text: t("source_a488e93d") });
     const sourceType = sourceTypeField.createEl('select');
-    sourceType.createEl('option', { value: 'vault', text: 'Vault 文件' });
-    sourceType.createEl('option', { value: 'remote', text: '网络地址' });
+    sourceType.createEl('option', { value: 'vault', text: t("vault_file_09d41c0d") });
+    sourceType.createEl('option', { value: 'remote', text: t("web_url_074939b7") });
     sourceType.value = data.sourceType;
     sourceType.addEventListener('change', () => {
-      this.updateAdvancedBlock(block.id, '修改资源来源', (target) => { target.data.sourceType = sourceType.value; }, { render: true });
+      this.updateAdvancedBlock(block.id, t("change_resource_source_ee335074"), (target) => { target.data.sourceType = sourceType.value; }, { render: true });
     });
     const sourceField = fields.createEl('label', { cls: 'bs-advanced-field' });
-    sourceField.createSpan({ text: data.sourceType === 'vault' ? 'Vault 路径' : '网络地址' });
+    sourceField.createSpan({ text: data.sourceType === 'vault' ? t("vault_path_c8b1cac5") : t("web_url_074939b7") });
     const sourceInput = sourceField.createEl('input', {
       attr: { type: data.sourceType === 'remote' ? 'url' : 'text', placeholder: data.sourceType === 'remote' ? 'https://…' : 'Assets/file.ext' },
     });
     sourceInput.value = data.sourceType === 'remote' ? data.url : data.path;
     sourceInput.addEventListener('change', () => {
-      this.updateAdvancedBlock(block.id, '修改资源地址', (target) => {
+      this.updateAdvancedBlock(block.id, t("change_resource_url_0a237a72"), (target) => {
         if (target.data.sourceType === 'remote') target.data.url = sourceInput.value.trim();
         else target.data.path = normalizePath(sourceInput.value.trim());
       }, { render: true });
     });
     if (block.type === 'image') {
       const altField = fields.createEl('label', { cls: 'bs-advanced-field' });
-      altField.createSpan({ text: '替代文字' });
+      altField.createSpan({ text: t("alt_text_44f78ce6") });
       const alt = altField.createEl('input', { attr: { type: 'text' } });
       alt.value = data.alt || '';
       alt.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改图片替代文字', (target) => { target.data.alt = alt.value; }, { render: true });
+        this.updateAdvancedBlock(block.id, t("change_image_alt_text_14682685"), (target) => { target.data.alt = alt.value; }, { render: true });
       });
       const alignField = fields.createEl('label', { cls: 'bs-advanced-field' });
-      alignField.createSpan({ text: '图片对齐' });
+      alignField.createSpan({ text: t("image_alignment_1b01af64") });
       const align = alignField.createEl('select');
       for (const [value, text] of [
-        ['left', '左对齐'],
-        ['center', '居中'],
-        ['right', '右对齐'],
+        ['left', t("align_left_2bd74486")],
+        ['center', t("center_4cc3885c")],
+        ['right', t("align_right_331c711e")],
       ]) align.createEl('option', { value, text });
       align.value = Core.normalizeBlockAppearance(block.appearance).align;
       align.addEventListener('change', () => {
-        this.performMutation('修改图片对齐', (page) => {
+        this.performMutation(t("change_image_alignment_018e793a"), (page) => {
           const target = Core.getBlock(page, block.id);
           if (!target) return;
           target.appearance = { ...Core.normalizeBlockAppearance(target.appearance), align: align.value };
         }, { render: true });
       });
       const sizeModeField = fields.createEl('label', { cls: 'bs-advanced-field' });
-      sizeModeField.createSpan({ text: '图片尺寸' });
+      sizeModeField.createSpan({ text: t("image_size_c08c3589") });
       const sizeMode = sizeModeField.createEl('select');
       for (const [value, text] of [
-        ['auto', '自然尺寸'],
-        ['fixed', '固定宽度'],
-        ['full', '适应内容宽度'],
+        ['auto', t("natural_size_e1fa86b0")],
+        ['fixed', t("fixed_width_4513e64a")],
+        ['full', t("fit_content_width_4bccfe47")],
       ]) sizeMode.createEl('option', { value, text });
       sizeMode.value = data.widthMode;
       sizeMode.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改图片尺寸模式', (target) => {
+        this.updateAdvancedBlock(block.id, t("change_image_sizing_mode_89b000a5"), (target) => {
           target.data.widthMode = sizeMode.value;
           target.data.height = 0;
           if (sizeMode.value === 'fixed') target.data.width = target.data.width || 320;
@@ -6045,11 +5986,11 @@ class BlockspaceView extends ItemView {
         }, { render: true });
       });
       const widthField = fields.createEl('label', { cls: 'bs-advanced-field' });
-      widthField.createSpan({ text: '显示宽度' });
-      const width = widthField.createEl('input', { attr: { type: 'number', min: '0', max: '4000', placeholder: '自动' } });
+      widthField.createSpan({ text: t("display_width_6ed10f4b") });
+      const width = widthField.createEl('input', { attr: { type: 'number', min: '0', max: '4000', placeholder: t("automatic_7eb336e4") } });
       width.value = data.width ? String(data.width) : '';
       width.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改图片宽度', (target) => {
+        this.updateAdvancedBlock(block.id, t("change_image_width_07c3858b"), (target) => {
           target.data.width = Number(width.value) || 0;
           target.data.height = 0;
           target.data.widthMode = target.data.width ? 'fixed' : 'auto';
@@ -6067,47 +6008,47 @@ class BlockspaceView extends ItemView {
           }, { render: true });
         });
       };
-      addImageSelect('文字环绕', 'wrapMode', [
-        ['top-bottom', '独占一行'],
-        ['square-left', '图片靠左'],
-        ['square-right', '图片靠右'],
-      ], '修改文字环绕');
-      addImageSelect('文字垂直对齐', 'wrapTextAlign', [
-        ['top', '顶部对齐'],
-        ['center', '垂直居中'],
-        ['bottom', '底部对齐'],
-      ], '修改文字垂直对齐');
-      addImageSelect('图文间距', 'wrapGap', [
-        [12, '紧凑 · 12px'],
-        [20, '标准 · 20px'],
-        [28, '宽松 · 28px'],
-        [36, '松散 · 36px'],
-      ], '修改图文间距');
-      addImageSelect('图注对齐', 'captionAlign', [
-        ['left', '左对齐'],
-        ['center', '居中'],
-        ['right', '右对齐'],
-      ], '修改图注对齐');
-      addImageSelect('图注字号', 'captionSize', [
-        ['small', '小号'],
-        ['normal', '正文'],
-      ], '修改图注字号');
-      addImageSelect('图注样式', 'captionStyle', [
-        ['regular', '常规'],
-        ['italic', '斜体'],
-        ['bold', '粗体'],
-      ], '修改图注样式');
+      addImageSelect(t("text_wrapping_12a0525c"), 'wrapMode', [
+        ['top-bottom', t("full_row_78d9ec04")],
+        ['square-left', t("image_on_the_left_202ac48a")],
+        ['square-right', t("image_on_the_right_df20282d")],
+      ], t("change_text_wrapping_996850bf"));
+      addImageSelect(t("vertical_text_alignment_50e15011"), 'wrapTextAlign', [
+        ['top', t("align_top_a6648b5b")],
+        ['center', t("center_vertically_f8e151e9")],
+        ['bottom', t("align_bottom_f809ff81")],
+      ], t("change_vertical_text_alignment_7041b91b"));
+      addImageSelect(t("image_and_text_spacing_a10abb3d"), 'wrapGap', [
+        [12, t("compact_12px_5c8bb169")],
+        [20, t("standard_20px_4fb9cc21")],
+        [28, t("relaxed_28px_85e7d6c1")],
+        [36, t("loose_36px_3e070243")],
+      ], t("change_image_and_text_spacing_699f34b5"));
+      addImageSelect(t("caption_alignment_e146e592"), 'captionAlign', [
+        ['left', t("align_left_2bd74486")],
+        ['center', t("center_4cc3885c")],
+        ['right', t("align_right_331c711e")],
+      ], t("change_caption_alignment_23e23a9a"));
+      addImageSelect(t("caption_font_size_770b72b7"), 'captionSize', [
+        ['small', t("small_511f41e7")],
+        ['normal', t("body_d661c3d9")],
+      ], t("change_caption_font_size_273937ba"));
+      addImageSelect(t("caption_style_1056884c"), 'captionStyle', [
+        ['regular', t("regular_40fae00b")],
+        ['italic', t("italic_217901c5")],
+        ['bold', t("bold_f6da93ed")],
+      ], t("change_caption_style_5f5bca75"));
       fields.createDiv({
         cls: 'bs-image-caption-guidance',
-        text: '图注适合简短说明，可设置整段对齐、字号和字形；颜色、链接或局部格式请在图片下方使用普通文本块。',
+        text: t("captions_are_for_short_descriptions_with_alignme_8247cf2b"),
       });
     } else {
       const titleField = fields.createEl('label', { cls: 'bs-advanced-field' });
-      titleField.createSpan({ text: block.type === 'attachment' ? '文件名' : '标题' });
+      titleField.createSpan({ text: block.type === 'attachment' ? t("file_name_a6e48adc") : t("title_c3405f8c") });
       const title = titleField.createEl('input', { attr: { type: 'text' } });
       title.value = block.type === 'attachment' ? data.name || '' : data.title || '';
       title.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改媒体标题', (target) => {
+        this.updateAdvancedBlock(block.id, t("change_media_title_d42b6ff9"), (target) => {
           if (target.type === 'attachment') target.data.name = title.value;
           else target.data.title = title.value;
         }, { render: true });
@@ -6117,23 +6058,23 @@ class BlockspaceView extends ItemView {
       const embedField = fields.createEl('label', { cls: 'bs-advanced-field is-toggle' });
       const embed = embedField.createEl('input', { attr: { type: 'checkbox' } });
       embed.checked = !!data.embed;
-      embedField.createSpan({ text: '嵌入 PDF 预览' });
+      embedField.createSpan({ text: t("embed_pdf_preview_602fa7f9") });
       embed.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '切换附件嵌入', (target) => { target.data.embed = embed.checked; }, { render: true });
+        this.updateAdvancedBlock(block.id, t("toggle_embedded_attachment_8949dc5e"), (target) => { target.data.embed = embed.checked; }, { render: true });
       });
       const pageField = fields.createEl('label', { cls: 'bs-advanced-field' });
-      pageField.createSpan({ text: '起始页码' });
-      const page = pageField.createEl('input', { attr: { type: 'number', min: '0', placeholder: '默认' } });
+      pageField.createSpan({ text: t("starting_page_051a06e3") });
+      const page = pageField.createEl('input', { attr: { type: 'number', min: '0', placeholder: t("default_844b8cc8") } });
       page.value = data.page ? String(data.page) : '';
       page.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改附件页码', (target) => { target.data.page = Number(page.value) || 0; }, { render: true });
+        this.updateAdvancedBlock(block.id, t("change_attachment_page_ed0588ee"), (target) => { target.data.page = Number(page.value) || 0; }, { render: true });
       });
       const heightField = fields.createEl('label', { cls: 'bs-advanced-field' });
-      heightField.createSpan({ text: '预览高度' });
+      heightField.createSpan({ text: t("preview_height_6f8f9b2e") });
       const height = heightField.createEl('input', { attr: { type: 'number', min: '240', max: '4000', placeholder: '520' } });
       height.value = data.height ? String(data.height) : '';
       height.addEventListener('change', () => {
-        this.updateAdvancedBlock(block.id, '修改附件高度', (target) => { target.data.height = Number(height.value) || 0; }, { render: true });
+        this.updateAdvancedBlock(block.id, t("change_attachment_height_b73effa5"), (target) => { target.data.height = Number(height.value) || 0; }, { render: true });
       });
     }
   }
@@ -6154,7 +6095,7 @@ class BlockspaceView extends ItemView {
   renderColumnsBlock(content, wrapper, block) {
     const config = Core.normalizeColumnsConfig(block.columns);
     wrapper.addClass('is-layout-block');
-    wrapper.setAttribute('aria-label', `${config.count} 栏布局`);
+    wrapper.setAttribute('aria-label', t("0_column_layout_b5b83b72", [config.count]));
     const layout = content.createDiv({ cls: 'bs-columns-layout' });
     const grid = layout.createDiv({ cls: 'bs-columns-grid' });
     const fallbackRatio = config.count === 3 ? '1:1:1' : '1:1';
@@ -6166,13 +6107,13 @@ class BlockspaceView extends ItemView {
         cls: 'bs-column',
         attr: {
           role: 'group',
-          'aria-label': `第 ${columnIndex + 1} 栏`,
+          'aria-label': t("column_0_a15edce9", [columnIndex + 1]),
           'data-column-id': column.id,
         },
       });
       const addBlock = () => {
         let createdId = null;
-        this.performMutation('在分栏中添加块', (page) => {
+        this.performMutation(t("add_block_to_column_1cdb61d5"), (page) => {
           const targetColumn = Core.getBlock(page, column.id);
           if (!targetColumn) return;
           const created = Core.insertBlock(page, Core.createBlock(), { parentId: targetColumn.id, index: targetColumn.children.length });
@@ -6187,7 +6128,7 @@ class BlockspaceView extends ItemView {
       else {
         const empty = blocksHost.createEl('button', {
           cls: 'bs-column-empty',
-          text: '拖入块，或点击添加',
+          text: t("drop_blocks_here_or_click_to_add_aaea3326"),
           attr: { type: 'button' },
         });
         empty.addEventListener('click', addBlock);
@@ -6223,7 +6164,7 @@ class BlockspaceView extends ItemView {
         this.dragBlockIds = [];
         this.contentEl.querySelectorAll('.bs-block.is-dragging').forEach((element) => element.removeClass('is-dragging'));
         if (!sourceIds.length) return;
-        this.performMutation(sourceIds.length > 1 ? '将多个块移入分栏' : '将块移入分栏', (page) => {
+        this.performMutation(sourceIds.length > 1 ? t("move_blocks_into_column_e9bfbcbb") : t("move_block_into_column_10fe8668"), (page) => {
           Core.moveSubtrees(page, sourceIds, column.id, 'inside');
         });
       });
@@ -6252,9 +6193,9 @@ class BlockspaceView extends ItemView {
       attr: {
         role: 'button',
         tabindex: '0',
-        'aria-label': '选择当前块；选择后可用 Shift 加方向键扩展范围',
+        'aria-label': t("select_this_block_then_use_shift_arrow_keys_to_e_217e3e13"),
         'aria-pressed': this.selectedBlockIds.has(block.id) ? 'true' : 'false',
-        title: '拖动选择连续块，或按 Enter/空格选择当前块',
+        title: t("drag_to_select_consecutive_blocks_or_press_enter_275cc5f1"),
       },
     });
     selectRail.addEventListener('pointerdown', (event) => this.beginGutterSelection(block.id, event));
@@ -6266,11 +6207,11 @@ class BlockspaceView extends ItemView {
       event.preventDefault();
       this.selectBlock(block.id, { range: event.shiftKey, toggle: event.ctrlKey || event.metaKey });
     });
-    const addButton = createButton(controls, 'bs-block-control', '在当前块后添加同级块', 'plus');
+    const addButton = createButton(controls, 'bs-block-control', t("add_sibling_block_after_this_block_ff273230"), 'plus');
     addButton.addEventListener('click', () => this.insertBlock(block.id));
-    const handle = createButton(controls, 'bs-block-control bs-drag-handle', '选择、拖动或打开块菜单', 'grip-vertical');
+    const handle = createButton(controls, 'bs-block-control bs-drag-handle', t("select_drag_or_open_block_menu_ac7a34d9"), 'grip-vertical');
     handle.draggable = true;
-    handle.title = '单击或右键打开菜单 · Shift 连选 · Ctrl/Cmd 多选 · 拖动整棵子树 · Shift+F10 键盘菜单';
+    handle.title = t("click_or_right_click_for_menu_shift_for_range_ct_f521c102");
     handle.setAttribute('aria-pressed', this.selectedBlockIds.has(block.id) ? 'true' : 'false');
     handle.addEventListener('click', (event) => {
       if (event.shiftKey || event.ctrlKey || event.metaKey) {
@@ -6366,7 +6307,7 @@ class BlockspaceView extends ItemView {
       this.dragBlockIds = [];
       this.contentEl.querySelectorAll('.bs-block.is-dragging').forEach((element) => element.removeClass('is-dragging'));
       if (!sourceIds.length) return;
-      this.performMutation(sourceIds.length > 1 ? '拖动多个块子树' : '拖动块子树', (page) => {
+      this.performMutation(sourceIds.length > 1 ? t("drag_block_subtrees_90451e86") : t("drag_block_subtree_e2c61558"), (page) => {
         Core.moveSubtrees(page, sourceIds, block.id, position);
       });
     });
@@ -6382,12 +6323,12 @@ class BlockspaceView extends ItemView {
     const isCollapsed = Core.isHeadingBlock(block) ? !!block.sectionCollapsed : !!block.collapsed;
     wrapper.toggleClass('is-section-collapsed', Core.isHeadingBlock(block) && !!block.sectionCollapsed);
     if (canCollapse) {
-      const disclosure = createButton(content, 'bs-collapse-toggle', isCollapsed ? '展开内容' : '折叠内容', isCollapsed ? 'chevron-right' : 'chevron-down');
+      const disclosure = createButton(content, 'bs-collapse-toggle', isCollapsed ? t("expand_content_6ad8768c") : t("collapse_content_1d37f580"), isCollapsed ? 'chevron-right' : 'chevron-down');
       disclosure.setAttribute('aria-expanded', String(!isCollapsed));
       disclosure.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        this.performMutation(isCollapsed ? '展开内容' : '折叠内容', (page) => {
+        this.performMutation(isCollapsed ? t("expand_content_6ad8768c") : t("collapse_content_1d37f580"), (page) => {
           if (Core.isHeadingBlock(block)) Core.toggleHeadingSectionCollapsed(page, block.id);
           else Core.toggleBlockCollapsed(page, block.id);
         });
@@ -6397,10 +6338,10 @@ class BlockspaceView extends ItemView {
     }
 
     if (block.type === 'todo') {
-      const checkbox = content.createEl('input', { cls: 'bs-todo-checkbox', attr: { type: 'checkbox', 'aria-label': '完成任务' } });
+      const checkbox = content.createEl('input', { cls: 'bs-todo-checkbox', attr: { type: 'checkbox', 'aria-label': t("complete_task_56be0930") } });
       checkbox.checked = block.checked;
       checkbox.addEventListener('change', () => {
-        this.performMutation('切换待办状态', (page) => {
+        this.performMutation(t("toggle_to_do_status_2128b67b"), (page) => {
           const current = Core.getBlock(page, block.id);
           if (current) current.checked = checkbox.checked;
         }, { render: false });
@@ -6422,24 +6363,24 @@ class BlockspaceView extends ItemView {
     }
 
     if (block.type === 'table-of-contents') {
-      const toc = content.createEl('nav', { cls: 'bs-toc', attr: { 'aria-label': '页面目录' } });
+      const toc = content.createEl('nav', { cls: 'bs-toc', attr: { 'aria-label': t("page_table_of_contents_af0ae335") } });
       const tocHeader = toc.createDiv({ cls: 'bs-toc-header' });
       const tocIcon = tocHeader.createSpan({ cls: 'bs-toc-header-icon' });
       setIcon(tocIcon, 'list-tree');
-      tocHeader.createSpan({ text: '目录' });
+      tocHeader.createSpan({ text: t("table_of_contents_52daa71e") });
       const items = Core.deriveOutline(this.page, block.toc);
       if (!items.length) {
         const empty = toc.createDiv({ cls: 'bs-toc-empty' });
-        empty.createDiv({ cls: 'bs-toc-empty-title', text: '此页面还没有标题' });
-        empty.createDiv({ cls: 'bs-toc-empty-hint', text: '输入 /标题，或使用下方按钮创建第一个章节。' });
-        const createHeading = createButton(empty, 'bs-toc-create-heading', '创建一级标题', 'heading-1', '创建标题');
+        empty.createDiv({ cls: 'bs-toc-empty-title', text: t("this_page_has_no_headings_yet_658a7e8b") });
+        empty.createDiv({ cls: 'bs-toc-empty-hint', text: t("type_heading_or_use_the_button_below_to_create_y_74588f66") });
+        const createHeading = createButton(empty, 'bs-toc-create-heading', t("create_heading_1_928d3c72"), 'heading-1', t("create_heading_454eae39"));
         createHeading.addEventListener('click', () => {
           let headingId = null;
-          this.performMutation('创建目录标题', (page) => {
-            const heading = Core.createBlock('heading-1', '新章节');
+          this.performMutation(t("create_table_of_contents_heading_ceda7375"), (page) => {
+            const heading = Core.createBlock('heading-1', t("new_section_f8cae3f2"));
             headingId = Core.insertBlocksAfter(page, block.id, [heading])[0].id;
           });
-          if (headingId) focusEditorAt(this, headingId, '新章节'.length);
+          if (headingId) focusEditorAt(this, headingId, t("new_section_f8cae3f2").length);
         });
       }
       for (const item of items) {
@@ -6449,7 +6390,7 @@ class BlockspaceView extends ItemView {
         });
         link.style.setProperty('--bs-toc-level', String(Math.max(0, item.level - block.toc.minLevel)));
         if (block.toc.showNumbers && item.numberPath) link.createSpan({ cls: 'bs-toc-number', text: item.numberPath });
-        link.createSpan({ cls: 'bs-toc-label', text: item.title });
+        link.createSpan({ cls: 'bs-toc-label', text: item.title, attr: { 'data-collapsed-label': t('collapsed_suffix') } });
         link.addEventListener('click', () => this.focusBlock(item.blockId));
       }
       return;
@@ -6466,27 +6407,27 @@ class BlockspaceView extends ItemView {
       const markdownIcon = markdownLabel.createSpan({ cls: 'bs-markdown-block-icon' });
       setIcon(markdownIcon, 'file-code-2');
       markdownLabel.createSpan({ text: 'Markdown' });
-      const editButton = createButton(markdownHeader, 'bs-markdown-edit-button', '编辑 Markdown 源码', 'square-pen', '编辑');
+      const editButton = createButton(markdownHeader, 'bs-markdown-edit-button', t("edit_markdown_source_a346d23b"), 'square-pen', t("edit_05183656"));
       editButton.tabIndex = 0;
       const preview = markdownBlock.createDiv({
         cls: 'bs-markdown-preview markdown-preview-view',
         attr: {
           tabindex: '0',
-          'aria-label': 'Markdown 预览，点击正文或按 Enter 编辑源码',
+          'aria-label': t("markdown_preview_click_the_body_or_press_enter_t_b17779bd"),
         },
       });
       const editor = markdownBlock.createEl('textarea', {
         cls: 'bs-markdown-source-editor',
         attr: {
-          'aria-label': '编辑 Markdown',
-          placeholder: '输入 Markdown，例如 [[页面]]、![[图片.png]]、公式、Mermaid 或 Callout…',
+          'aria-label': t("edit_markdown_e86517e0"),
+          placeholder: t("enter_markdown_such_as_page_image_png_math_merma_806fec9a"),
           spellcheck: 'false',
         },
       });
       editor.value = block.text || '';
       editor.hidden = true;
       if (block.text) void this.renderMarkdownInto(preview, block.text, `markdown:${block.id}`);
-      else preview.createDiv({ cls: 'bs-markdown-empty', text: '空 Markdown 块' });
+      else preview.createDiv({ cls: 'bs-markdown-empty', text: t("empty_markdown_block_29abc39c") });
       editButton.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -6523,8 +6464,8 @@ class BlockspaceView extends ItemView {
         event.stopPropagation();
         activateFromPreview(preview);
       });
-      editor.addEventListener('beforeinput', () => this.beginLiveEdit('编辑原生 Markdown', `markdown:${block.id}`));
-      editor.addEventListener('compositionstart', () => { this.isComposing = true; this.beginLiveEdit('编辑原生 Markdown', `markdown:${block.id}`); });
+      editor.addEventListener('beforeinput', () => this.beginLiveEdit(t("edit_native_markdown_b89a272c"), `markdown:${block.id}`));
+      editor.addEventListener('compositionstart', () => { this.isComposing = true; this.beginLiveEdit(t("edit_native_markdown_b89a272c"), `markdown:${block.id}`); });
       editor.addEventListener('compositionend', () => {
         this.isComposing = false;
         const current = Core.getBlock(this.page, block.id);
@@ -6532,7 +6473,7 @@ class BlockspaceView extends ItemView {
         this.afterLiveEdit({ commitNow: true });
       });
       editor.addEventListener('input', () => {
-        this.beginLiveEdit('编辑原生 Markdown', `markdown:${block.id}`);
+        this.beginLiveEdit(t("edit_native_markdown_b89a272c"), `markdown:${block.id}`);
         const current = Core.getBlock(this.page, block.id);
         if (current) { current.text = editor.value; current.marks = []; }
         this.afterLiveEdit();
@@ -6576,7 +6517,7 @@ class BlockspaceView extends ItemView {
       if (markdown) {
         this.scheduleNativePreviewRender(nativePreview, () => void this.renderMarkdownInto(nativePreview, markdown, `inline:${block.id}`));
       }
-      else nativePreview.createSpan({ cls: 'bs-native-block-empty', text: index === 0 ? '点击输入内容，或输入 /' : '点击输入内容' });
+      else nativePreview.createSpan({ cls: 'bs-native-block-empty', text: index === 0 ? t("click_to_type_or_type_dd580f20") : t("click_to_type_b540042a") });
       nativePreview.addEventListener('click', (event) => {
         if (event.target && event.target.closest && event.target.closest('a, button, input')) return;
         this.activateTextBlockEditor(block.id);
@@ -6589,23 +6530,23 @@ class BlockspaceView extends ItemView {
       attr: {
         contenteditable: 'true',
         role: 'textbox',
-        'aria-label': `编辑${SLASH_COMMANDS.find((command) => command.type === block.type)?.label || '文本'}块`,
+        'aria-label': t("edit_0_block_14c9eb72", [SLASH_COMMANDS.find((command) => command.type === block.type)?.label || t("text_dd818618")]),
         'data-placeholder': depth > 0 && block.type === 'todo'
-          ? '输入子任务…'
+          ? t("enter_a_subtask_8c816407")
           : depth > 0 && (block.type === 'bulleted-list' || block.type === 'numbered-list')
-            ? '输入子项…'
-            : index === 0 ? '输入 / 打开命令菜单' : '输入内容，或输入 /',
+            ? t("enter_a_child_item_b05a71c0")
+            : index === 0 ? t("type_to_open_the_command_menu_1f62499d") : t("enter_content_or_type_0102dc44"),
         spellcheck: 'true',
       },
     });
     renderInlineContent(editor, block);
     if (useNativePreview) editor.hidden = true;
     editor.addEventListener('paste', (event) => this.handleBlockPaste(event, block.id, editor));
-    editor.addEventListener('beforeinput', () => this.beginLiveEdit('编辑块内容', `block:${block.id}`));
+    editor.addEventListener('beforeinput', () => this.beginLiveEdit(t("edit_block_content_15ae2c32"), `block:${block.id}`));
     editor.addEventListener('compositionstart', () => {
       this.isComposing = true;
       this.setInteractionState('composing', { blockId: block.id });
-      this.beginLiveEdit('编辑块内容', `block:${block.id}`);
+      this.beginLiveEdit(t("edit_block_content_15ae2c32"), `block:${block.id}`);
     });
     editor.addEventListener('compositionend', () => {
       this.isComposing = false;
@@ -6620,7 +6561,7 @@ class BlockspaceView extends ItemView {
       this.updateSlashMenu(wrapper, editor, current || block, this.getVisibleBlockIndex(block.id));
     });
     editor.addEventListener('input', () => {
-      this.beginLiveEdit('编辑块内容', `block:${block.id}`);
+      this.beginLiveEdit(t("edit_block_content_15ae2c32"), `block:${block.id}`);
       const current = Core.getBlock(this.page, block.id);
       if (current) {
         const contentState = readInlineContent(editor);
@@ -6697,7 +6638,7 @@ class BlockspaceView extends ItemView {
           event.preventDefault();
           let insertedRoots = [];
           const replaceEmpty = currentBlock && currentBlock.type === 'paragraph' && !currentBlock.text && !currentBlock.children.length;
-          this.performMutation('粘贴 Blockspace 块', (page) => {
+          this.performMutation(t("paste_blockspace_blocks_aa7af3b0"), (page) => {
             insertedRoots = Core.insertSerializedSubtrees(page, payload, blockId);
             if (replaceEmpty && insertedRoots.length) Core.removeSubtrees(page, [blockId]);
           });
@@ -6724,7 +6665,7 @@ class BlockspaceView extends ItemView {
         event.preventDefault();
         let insertedRoots = [];
         const replaceEmpty = currentBlock && currentBlock.type === 'paragraph' && !currentBlock.text && !currentBlock.children.length;
-        this.performMutation('粘贴 Markdown 结构', (page) => {
+        this.performMutation(t("paste_markdown_structure_88b358ab"), (page) => {
           insertedRoots = Core.insertSerializedSubtrees(page, payload, blockId);
           if (replaceEmpty && insertedRoots.length) Core.removeSubtrees(page, [blockId]);
         });
@@ -6745,7 +6686,7 @@ class BlockspaceView extends ItemView {
       const replacement = Core.replaceInlineRangeWithMarkdown(currentBlock, from, to, normalized);
       if (replacement) {
         event.preventDefault();
-        this.performMutation('粘贴 Markdown 行内格式', (page) => {
+        this.performMutation(t("paste_markdown_inline_formatting_b5d604d8"), (page) => {
           const target = Core.getBlock(page, blockId);
           if (!target) return;
           target.text = replacement.text;
@@ -6779,7 +6720,7 @@ class BlockspaceView extends ItemView {
       return Core.createBlock('paragraph', textValue, extras);
     });
     let insertedIds = [];
-    this.performMutation('粘贴多个块', (page) => {
+    this.performMutation(t("paste_multiple_blocks_be7e0b94"), (page) => {
       const target = Core.getBlock(page, blockId);
       if (!target) return;
       target.text = `${prefix}${lines[0]}`;
@@ -6800,7 +6741,7 @@ class BlockspaceView extends ItemView {
     if (!converted) return false;
     // performMutation commits the pending typing first, so Ctrl/Cmd + Z peels off the
     // formatting and hands back the literal Markdown rather than deleting the text.
-    this.performMutation('Markdown 行内格式', (page) => {
+    this.performMutation(t("markdown_inline_formatting_f8ee78e2"), (page) => {
       const target = Core.getBlock(page, blockId);
       if (!target) return;
       target.text = converted.text;
@@ -6837,7 +6778,7 @@ class BlockspaceView extends ItemView {
     if (!this.page || !targetType) return false;
     if (targetType === 'divider') {
       let nextId = null;
-      this.performMutation('Markdown 快捷输入：分隔线', (page) => {
+      this.performMutation(t("markdown_shortcut_divider_5dc9f6bd"), (page) => {
         Core.convertBlockType(page, [blockId], 'divider');
         const target = Core.getBlock(page, blockId);
         if (target) { target.text = ''; target.marks = []; }
@@ -6847,7 +6788,7 @@ class BlockspaceView extends ItemView {
       if (nextId) focusEditorAt(this, nextId, 0);
       return true;
     }
-    this.performMutation('Markdown 快捷输入', (page) => {
+    this.performMutation(t("markdown_shortcut_e0df112b"), (page) => {
       Core.convertBlockType(page, [blockId], targetType);
       const target = Core.getBlock(page, blockId);
       if (target) {
@@ -6927,7 +6868,7 @@ class BlockspaceView extends ItemView {
         if (lowerKey === 'k') return;
         event.preventDefault();
         event.stopPropagation();
-        new Notice('请先选择要设置格式的文字');
+        new Notice(t("select_text_to_format_first_809224c0"));
         return;
       }
       event.preventDefault();
@@ -6948,7 +6889,7 @@ class BlockspaceView extends ItemView {
     if (modifier && event.shiftKey && lowerKey === 'd') {
       event.preventDefault();
       const caretOffset = getCaretOffset(editor);
-      this.runCommand('复制块及其子块', (page) => {
+      this.runCommand(t("duplicate_block_and_its_children_959f4542"), (page) => {
         const ids = Core.duplicateSubtrees(page, [blockId]);
         return { duplicateId: ids[0] || null };
       }, { focus: (result, page) => result.duplicateId ? {
@@ -6963,7 +6904,7 @@ class BlockspaceView extends ItemView {
       const caretOffset = getCaretOffset(editor);
       const direction = event.key === 'ArrowUp' ? -1 : 1;
       let moved = false;
-      this.performMutation(direction < 0 ? '上移块子树' : '下移块子树', (page) => {
+      this.performMutation(direction < 0 ? t("move_block_subtree_up_79479d13") : t("move_block_subtree_down_3c73fea3"), (page) => {
         moved = Core.moveSiblingGroup(page, [blockId], direction);
       });
       if (moved) focusEditorAt(this, blockId, caretOffset);
@@ -6973,7 +6914,7 @@ class BlockspaceView extends ItemView {
     if (modifier && event.key === 'Enter') {
       if (currentBlock.type === 'todo') {
         event.preventDefault();
-        this.performMutation('切换待办状态', (page) => {
+        this.performMutation(t("toggle_to_do_status_2128b67b"), (page) => {
           const target = Core.getBlock(page, blockId);
           if (target) target.checked = !target.checked;
         }, { render: false });
@@ -6984,12 +6925,12 @@ class BlockspaceView extends ItemView {
       }
       if (Core.isHeadingBlock(currentBlock) && Core.getHeadingSectionRootIds(this.page, blockId).length > 1) {
         event.preventDefault();
-        this.performMutation(currentBlock.sectionCollapsed ? '展开章节' : '折叠章节', (page) => Core.toggleHeadingSectionCollapsed(page, blockId));
+        this.performMutation(currentBlock.sectionCollapsed ? t("expand_section_f3d88072") : t("collapse_section_d3c1e2b1"), (page) => Core.toggleHeadingSectionCollapsed(page, blockId));
         return;
       }
       if (currentBlock.type === 'toggle' || currentBlock.children.length) {
         event.preventDefault();
-        this.performMutation(currentBlock.collapsed ? '展开子块' : '折叠子块', (page) => Core.toggleBlockCollapsed(page, blockId));
+        this.performMutation(currentBlock.collapsed ? t("expand_child_blocks_7961fc08") : t("collapse_child_blocks_6b4e7c7b"), (page) => Core.toggleBlockCollapsed(page, blockId));
         return;
       }
     }
@@ -7014,7 +6955,7 @@ class BlockspaceView extends ItemView {
         const siblings = Core.getSiblingIds(this.page, currentBlock.parentId);
         const isLastChild = siblings[siblings.length - 1] === blockId;
         if (parent && isLastChild && ['toggle', 'callout', 'quote'].includes(parent.type)) {
-          this.runCommand('退出容器', (page) => ({ changed: Core.outdentBlocks(page, [blockId]) }), {
+          this.runCommand(t("exit_container_3cce6776"), (page) => ({ changed: Core.outdentBlocks(page, [blockId]) }), {
             focus: { type: 'block', blockId, offset: 0 },
           });
           return;
@@ -7023,9 +6964,9 @@ class BlockspaceView extends ItemView {
 
       if (!text && ['todo', 'bulleted-list', 'numbered-list', 'quote', 'callout', 'toggle'].includes(currentBlock.type)) {
         if (currentBlock.parentId) {
-          this.performMutation('退出一级嵌套', (page) => Core.outdentBlocks(page, [blockId]));
+          this.performMutation(t("outdent_one_level_ebcd2d8c"), (page) => Core.outdentBlocks(page, [blockId]));
         } else {
-          this.performMutation('退出当前块类型', (page) => Core.convertBlockType(page, [blockId], 'paragraph'));
+          this.performMutation(t("exit_current_block_type_8fc8d7d3"), (page) => Core.convertBlockType(page, [blockId], 'paragraph'));
         }
         focusEditorAt(this, blockId, 0);
         return;
@@ -7033,7 +6974,7 @@ class BlockspaceView extends ItemView {
 
       if (currentBlock.type === 'toggle') {
         let childId = null;
-        this.performMutation('在折叠块中插入内容', (page) => {
+        this.performMutation(t("insert_content_into_toggle_e906f6f0"), (page) => {
           const target = Core.getBlock(page, blockId);
           if (!target) return;
           const markParts = Core.splitInlineMarks(target.marks, offset, target.text.length);
@@ -7047,7 +6988,7 @@ class BlockspaceView extends ItemView {
         return;
       }
 
-      this.runCommand('拆分块', (page) => {
+      this.runCommand(t("split_block_8c929f86"), (page) => {
         const next = Core.splitBlock(page, blockId, offset);
         return { nextId: next && next.id };
       }, { focus: (result) => result.nextId ? { type: 'block', blockId: result.nextId, offset: 0 } : null });
@@ -7067,18 +7008,18 @@ class BlockspaceView extends ItemView {
               const currentPosition = siblings.indexOf(blockId);
               const focusIndex = currentPosition > 0 ? currentPosition - 1 : 1;
               const focusTarget = Core.getBlock(this.page, siblings[focusIndex]);
-            this.runCommand('删除分栏中的空块', (page) => Core.removeSubtrees(page, [blockId]), {
+            this.runCommand(t("delete_empty_block_in_column_a63a00ed"), (page) => Core.removeSubtrees(page, [blockId]), {
               focus: focusTarget ? { type: 'block', blockId: focusTarget.id, offset: focusTarget.text.length } : null,
             });
             return;
           }
-          this.performMutation('退出一级嵌套', (page) => Core.outdentBlocks(page, [blockId]));
+          this.performMutation(t("outdent_one_level_ebcd2d8c"), (page) => Core.outdentBlocks(page, [blockId]));
           focusEditorAt(this, blockId, 0);
           return;
         }
         if (currentBlock.children.length && ['quote', 'callout', 'toggle'].includes(currentBlock.type)) {
           let focusId = null;
-          this.performMutation('移除容器外壳', (page) => {
+          this.performMutation(t("remove_container_wrapper_374b13dd"), (page) => {
             const result = Core.unwrapBlock(page, blockId);
             focusId = result && result.focusId;
           });
@@ -7086,7 +7027,7 @@ class BlockspaceView extends ItemView {
           return;
         }
         if (['todo', 'bulleted-list', 'numbered-list', 'quote', 'callout', 'toggle'].includes(currentBlock.type)) {
-          this.performMutation('转为普通文本', (page) => Core.convertBlockType(page, [blockId], 'paragraph'));
+          this.performMutation(t("convert_to_plain_text_93da8c70"), (page) => Core.convertBlockType(page, [blockId], 'paragraph'));
           focusEditorAt(this, blockId, 0);
           return;
         }
@@ -7094,7 +7035,7 @@ class BlockspaceView extends ItemView {
         const previous = visible[currentIndex - 1];
         if (previous) {
           const previousLength = previous.text.length;
-          this.runCommand('删除空块', (page) => Core.removeSubtrees(page, [blockId]), {
+          this.runCommand(t("delete_empty_block_7b796083"), (page) => Core.removeSubtrees(page, [blockId]), {
             focus: { type: 'block', blockId: previous.id, offset: previousLength },
           });
         }
@@ -7109,17 +7050,17 @@ class BlockspaceView extends ItemView {
             const currentPosition = siblings.indexOf(blockId);
             const previous = currentPosition > 0 ? Core.getBlock(this.page, siblings[currentPosition - 1]) : null;
             if (!previous) return;
-            this.runCommand('合并分栏内块', (page) => {
+            this.runCommand(t("merge_blocks_within_column_964ea7bf"), (page) => {
               const result = Core.mergeBlockWithPrevious(page, blockId);
               return result ? { blockId: result.block.id, offset: result.offset } : {};
             }, { focus: (result) => result.blockId ? { type: 'block', blockId: result.blockId, offset: result.offset } : null });
             return;
           }
-          this.performMutation('减少块层级', (page) => Core.outdentBlocks(page, [blockId]));
+          this.performMutation(t("outdent_block_e85cea35"), (page) => Core.outdentBlocks(page, [blockId]));
           focusEditorAt(this, blockId, 0);
           return;
         }
-        this.runCommand('合并块', (page) => {
+        this.runCommand(t("merge_blocks_24bc71ff"), (page) => {
           const result = Core.mergeBlockWithPrevious(page, blockId);
           return result ? { blockId: result.block.id, offset: result.offset } : {};
         }, { focus: (result) => result.blockId ? { type: 'block', blockId: result.blockId, offset: result.offset } : null });
@@ -7132,39 +7073,39 @@ class BlockspaceView extends ItemView {
       const caret = getCaretOffset(editor);
       const directParent = currentBlock.parentId ? Core.getBlock(this.page, currentBlock.parentId) : null;
       if (event.shiftKey && directParent && directParent.type === 'column') {
-        new Notice('当前块已经位于本栏最外层');
+        new Notice(t("this_block_is_already_at_the_outermost_level_of__51d4a8a1"));
         return;
       }
       let changed = false;
-      this.runCommand(event.shiftKey ? '减少块层级' : '将块移入上一容器', (page) => {
+      this.runCommand(event.shiftKey ? t("outdent_block_e85cea35") : t("move_block_into_previous_container_fe4b28f5"), (page) => {
         changed = event.shiftKey ? Core.outdentBlocks(page, [blockId]) : Core.indentBlocks(page, [blockId]);
         return { changed };
       }, { focus: (_result, page) => changed ? {
         type: 'block', blockId,
         offset: Math.min(caret, Core.getBlock(page, blockId).text.length),
       } : null });
-      if (!changed) new Notice(event.shiftKey ? '当前块已经位于最外层' : '上一同级块不能容纳子块');
+      if (!changed) new Notice(event.shiftKey ? t("this_block_is_already_at_the_outermost_level_54b53bf2") : t("the_previous_sibling_cannot_contain_child_blocks_41f2ce02"));
       return;
     }
 
     if (event.key === 'ArrowLeft' && isSelectionCollapsed(editor) && getCaretOffset(editor) === 0 && Core.isHeadingBlock(currentBlock) && Core.getHeadingSectionRootIds(this.page, blockId).length > 1 && !currentBlock.sectionCollapsed) {
       event.preventDefault();
-      this.performMutation('折叠章节', (page) => Core.toggleHeadingSectionCollapsed(page, blockId, true));
+      this.performMutation(t("collapse_section_d3c1e2b1"), (page) => Core.toggleHeadingSectionCollapsed(page, blockId, true));
       return;
     }
     if (event.key === 'ArrowRight' && isSelectionCollapsed(editor) && getCaretOffset(editor) === currentBlock.text.length && Core.isHeadingBlock(currentBlock) && currentBlock.sectionCollapsed) {
       event.preventDefault();
-      this.performMutation('展开章节', (page) => Core.toggleHeadingSectionCollapsed(page, blockId, false));
+      this.performMutation(t("expand_section_f3d88072"), (page) => Core.toggleHeadingSectionCollapsed(page, blockId, false));
       return;
     }
     if (event.key === 'ArrowLeft' && isSelectionCollapsed(editor) && getCaretOffset(editor) === 0 && currentBlock.children.length && !currentBlock.collapsed) {
       event.preventDefault();
-      this.performMutation('折叠子块', (page) => Core.toggleBlockCollapsed(page, blockId, true));
+      this.performMutation(t("collapse_child_blocks_6b4e7c7b"), (page) => Core.toggleBlockCollapsed(page, blockId, true));
       return;
     }
     if (event.key === 'ArrowRight' && isSelectionCollapsed(editor) && getCaretOffset(editor) === currentBlock.text.length && currentBlock.children.length && currentBlock.collapsed) {
       event.preventDefault();
-      this.performMutation('展开子块', (page) => Core.toggleBlockCollapsed(page, blockId, false));
+      this.performMutation(t("expand_child_blocks_7961fc08"), (page) => Core.toggleBlockCollapsed(page, blockId, false));
       return;
     }
     if (event.key === 'ArrowUp' && isSelectionCollapsed(editor) && getCaretOffset(editor) === 0 && currentIndex > 0) {
@@ -7217,7 +7158,7 @@ class BlockspaceView extends ItemView {
       const menuId = `bs-slash-menu-${block.id}`;
       const menu = wrapper.createDiv({
         cls: 'bs-slash-menu',
-        attr: { id: menuId, role: 'listbox', 'aria-label': '块类型' },
+        attr: { id: menuId, role: 'listbox', 'aria-label': t("block_type_06dc071a") },
       });
       const previousEditorRole = editor.getAttribute('role');
       editor.setAttribute('role', 'combobox');
@@ -7240,8 +7181,8 @@ class BlockspaceView extends ItemView {
     clearElement(this.slashState.menu);
     const title = this.slashState.menu.createDiv({ cls: 'bs-slash-title' });
     const slashBlock = this.page && Core.getBlock(this.page, this.slashState.blockId);
-    title.createSpan({ text: this.slashState.query ? `搜索“${this.slashState.query}”` : (slashBlock && slashBlock.parentId ? '在当前结构中插入' : '插入或转换块') });
-    title.createSpan({ cls: 'bs-slash-hint', text: '↑↓ 选择 · Enter 插入 · Esc 关闭' });
+    title.createSpan({ text: this.slashState.query ? t("search_0_b525fa11", [this.slashState.query]) : (slashBlock && slashBlock.parentId ? t("insert_into_the_current_structure_5bd80c80") : t("insert_or_convert_block_f3f8e66e")) });
+    title.createSpan({ cls: 'bs-slash-hint', text: t("to_select_enter_to_insert_esc_to_close_1d44e085") });
     let previousCategory = null;
     this.slashState.commands.forEach((command, index) => {
       if (!this.slashState.query && command.category !== previousCategory) {
@@ -7291,14 +7232,14 @@ class BlockspaceView extends ItemView {
     this.recentSlashTypes = [type, ...this.recentSlashTypes.filter((item) => item !== type)].slice(0, 6);
     if (type === 'columns') {
       let firstBlockId = null;
-      this.runCommand('插入分栏', (page) => {
+      this.runCommand(t("insert_columns_f68150c2"), (page) => {
         const result = Core.convertBlockToColumns(page, blockId, 2, { preserveText: false });
         firstBlockId = result && result.firstBlockId;
         return { firstBlockId };
       }, { focus: (result) => result.firstBlockId ? { type: 'block', blockId: result.firstBlockId, offset: 0 } : null });
       return;
     }
-    this.runCommand('转换块类型', (page) => {
+    this.runCommand(t("change_block_type_ea166358"), (page) => {
       const target = Core.getBlock(page, blockId);
       if (!target) return;
       Core.convertBlockType(page, [blockId], type);
@@ -7345,7 +7286,7 @@ class BlockspaceView extends ItemView {
     if (!block || !Core.ADVANCED_BLOCK_TYPES.has(block.type)) return;
     const menu = new Menu();
     menu.addItem((item) => item
-      .setTitle(block.type === 'table' ? '编辑表格' : block.type === 'bookmark' ? '编辑书签' : '编辑内容与地址')
+      .setTitle(block.type === 'table' ? t("edit_table_ba2b908e") : block.type === 'bookmark' ? t("edit_bookmark_2c1b74bf") : t("edit_content_and_url_d90313fe"))
       .setIcon('square-pen')
       .onClick(() => {
         if (block.type === 'table') {
@@ -7361,23 +7302,23 @@ class BlockspaceView extends ItemView {
         }
       }));
     if (block.type === 'table') {
-      menu.addItem((item) => item.setTitle('添加行').setIcon('rows-3').onClick(() => {
-        this.updateAdvancedBlock(block.id, '添加表格行', (target) => {
+      menu.addItem((item) => item.setTitle(t("add_row_371b80ce")).setIcon('rows-3').onClick(() => {
+        this.updateAdvancedBlock(block.id, t("add_table_row_bf23d102"), (target) => {
           const cells = {};
           for (const column of target.data.columns) cells[column.id] = '';
           target.data.rows.push({ id: Core.randomId('row'), cells });
         }, { render: true });
       }));
-      menu.addItem((item) => item.setTitle('添加列').setIcon('columns-3').onClick(() => {
-        this.updateAdvancedBlock(block.id, '添加表格列', (target) => {
+      menu.addItem((item) => item.setTitle(t("add_column_143eb0bf")).setIcon('columns-3').onClick(() => {
+        this.updateAdvancedBlock(block.id, t("add_table_column_7c812150"), (target) => {
           const id = Core.randomId('column');
-          target.data.columns.push({ id, name: `列 ${target.data.columns.length + 1}`, align: 'left', width: 160 });
+          target.data.columns.push({ id, name: t("column_0_94ab35a6", [target.data.columns.length + 1]), align: 'left', width: 160 });
           for (const row of target.data.rows) row.cells[id] = '';
         }, { render: true });
       }));
     } else if (!['bookmark'].includes(block.type)) {
       menu.addItem((item) => item
-        .setTitle('上传或替换文件')
+        .setTitle(t("upload_or_replace_file_9fdd9517"))
         .setIcon('upload')
         .onClick(() => {
           const input = this.contentEl.querySelector(`[data-block-id="${block.id}"] .bs-advanced-file-input`);
@@ -7389,22 +7330,22 @@ class BlockspaceView extends ItemView {
     if (source) {
       menu.addSeparator();
       menu.addItem((item) => item
-        .setTitle(block.type === 'bookmark' ? '打开链接' : '打开源文件')
+        .setTitle(block.type === 'bookmark' ? t("open_link_a2639495") : t("open_source_file_1c4beed1"))
         .setIcon('arrow-up-right')
         .onClick((clickEvent) => void this.openStoredLink(data.sourceType === 'vault' ? `wikilink:${source}` : source, clickEvent || event)));
       menu.addItem((item) => item
-        .setTitle('复制资源地址')
+        .setTitle(t("copy_resource_url_c25f2026"))
         .setIcon('link')
-        .onClick(() => void this.writeClipboardText(source, '已复制资源地址')));
+        .onClick(() => void this.writeClipboardText(source, t("copied_resource_url_0ac0228b"))));
     } else if (block.type === 'bookmark' && data.url) {
       menu.addSeparator();
-      menu.addItem((item) => item.setTitle('打开链接').setIcon('arrow-up-right').onClick((clickEvent) => void this.openStoredLink(data.url, clickEvent || event)));
+      menu.addItem((item) => item.setTitle(t("open_link_a2639495")).setIcon('arrow-up-right').onClick((clickEvent) => void this.openStoredLink(data.url, clickEvent || event)));
     }
     menu.addSeparator();
     menu.addItem((item) => item
-      .setTitle('复制原生 Markdown')
+      .setTitle(t("copy_native_markdown_80246ebd"))
       .setIcon('clipboard-copy')
-      .onClick(() => void this.writeClipboardText(Core.advancedBlockToMarkdown(block), '已复制原生 Markdown')));
+      .onClick(() => void this.writeClipboardText(Core.advancedBlockToMarkdown(block), t("copied_native_markdown_ac93d012"))));
     menu.showAtMouseEvent(event);
   }
 
@@ -7416,53 +7357,53 @@ class BlockspaceView extends ItemView {
     const headingSection = current && Core.isHeadingBlock(current) ? Core.getHeadingSectionRootIds(this.page, blockId) : [];
     if (blockIds.length > 1) {
       menu.addItem((item) => item
-        .setTitle(`已选择 ${blockIds.length} 个块`)
+        .setTitle(t("selected_0_blocks_ca2974fb", [blockIds.length]))
         .setIcon('layers-3')
         .setDisabled(true));
     }
     if (!blockIds.some((selectedId) => Core.getBlock(this.page, selectedId)?.type === 'columns')) {
       menu.addItem((item) => item
-        .setTitle(blockIds.length > 1 ? '转换所选块类型…' : '转换块类型…')
+        .setTitle(blockIds.length > 1 ? t("change_selected_block_types_c7801679") : t("change_block_type_cf0a7c9e"))
         .setIcon('replace')
         .onClick((clickEvent) => this.showBlockTypeMenu(clickEvent || event, blockIds)));
     }
     menu.addItem((item) => item
-      .setTitle(blockIds.length > 1 ? `设置 ${blockIds.length} 个块的样式…` : '块样式…')
+      .setTitle(blockIds.length > 1 ? t("style_0_blocks_4fd8aca1", [blockIds.length]) : t("block_style_8f22d39d"))
       .setIcon('palette')
       .onClick(() => new BlockAppearanceModal(this.app, this, blockIds).open()));
 
     if (current && blockIds.length === 1 && Core.isHeadingBlock(current)) {
       menu.addItem((item) => item
-        .setTitle('章节操作…')
+        .setTitle(t("section_actions_c7df1aae"))
         .setIcon('list-collapse')
         .onClick((clickEvent) => this.showHeadingContextMenu(clickEvent || event, current)));
     } else if (current && current.type !== 'columns' && blockIds.length === 1 && (current.type === 'toggle' || current.children.length || headingSection.length > 1)) {
       const collapsed = !!current.collapsed;
       menu.addItem((item) => item
-        .setTitle(collapsed ? '展开内容' : '折叠内容')
+        .setTitle(collapsed ? t("expand_content_6ad8768c") : t("collapse_content_1d37f580"))
         .setIcon(collapsed ? 'chevrons-down' : 'chevrons-up')
-        .onClick(() => this.performMutation(collapsed ? '展开内容' : '折叠内容', (page) => {
+        .onClick(() => this.performMutation(collapsed ? t("expand_content_6ad8768c") : t("collapse_content_1d37f580"), (page) => {
           Core.toggleBlockCollapsed(page, blockId);
         })));
     }
 
     if (current && blockIds.length === 1 && current.type === 'table-of-contents') {
       menu.addItem((item) => item
-        .setTitle('目录设置…')
+        .setTitle(t("table_of_contents_settings_5a0c5804"))
         .setIcon('list-tree')
         .onClick((clickEvent) => this.showTocContextMenu(clickEvent || event, current)));
     }
 
     if (current && blockIds.length === 1 && current.type === 'columns') {
       menu.addItem((item) => item
-        .setTitle('分栏设置…')
+        .setTitle(t("column_settings_b2af9055"))
         .setIcon('columns-3')
         .onClick((clickEvent) => this.showColumnsContextMenu(clickEvent || event, current)));
     }
 
     if (current && current.type === 'markdown' && blockIds.length === 1) {
       menu.addItem((item) => item
-        .setTitle('高级：编辑 Markdown 源码')
+        .setTitle(t("advanced_edit_markdown_source_c81f60cc"))
         .setIcon('file-code-2')
         .onClick(() => {
           const ownerWindow = this.contentEl.ownerDocument.defaultView;
@@ -7471,55 +7412,55 @@ class BlockspaceView extends ItemView {
     }
     if (current && Core.ADVANCED_BLOCK_TYPES.has(current.type) && blockIds.length === 1) {
       menu.addItem((item) => item
-        .setTitle(`${ADVANCED_BLOCK_LABELS[current.type]?.label || '高级块'}操作…`)
+        .setTitle(t("0_actions_a45671b1", [ADVANCED_BLOCK_LABELS[current.type]?.label || t("advanced_block_b1b1c2c5")]))
         .setIcon(ADVANCED_BLOCK_LABELS[current.type]?.icon || 'blocks')
         .onClick((clickEvent) => this.showAdvancedBlockContextMenu(clickEvent || event, current)));
     }
 
     menu.addSeparator();
     menu.addItem((item) => item
-      .setTitle('复制与引用…')
+      .setTitle(t("copy_and_reference_a753f002"))
       .setIcon('copy')
       .onClick((clickEvent) => this.showBlockCopyContextMenu(clickEvent || event, current, blockIds)));
     menu.addItem((item) => item
-      .setTitle('移动与层级…')
+      .setTitle(t("move_and_nest_a430082c"))
       .setIcon('move')
       .onClick((clickEvent) => this.showBlockMoveContextMenu(clickEvent || event, blockIds)));
     if (current && blockIds.length === 1) {
-      menu.addItem((item) => item.setTitle('查看块反向链接').setIcon('link-2').onClick(() => this.showBacklinksForBlock(blockId)));
+      menu.addItem((item) => item.setTitle(t("view_block_backlinks_d1db5b92")).setIcon('link-2').onClick(() => this.showBacklinksForBlock(blockId)));
     }
 
-    menu.addItem((item) => item.setTitle('选择当前可见页面全部块').setIcon('list-checks').onClick(() => {
+    menu.addItem((item) => item.setTitle(t("select_all_blocks_in_the_visible_page_74dfe144")).setIcon('list-checks').onClick(() => {
       const visibleIds = this.getVisibleBlockIds();
       this.setBlockSelection(visibleIds, visibleIds[0] || null, visibleIds[visibleIds.length - 1] || null);
     }));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle(blockIds.length > 1 ? `删除 ${blockIds.length} 个块子树` : '删除块及其子块').setIcon('trash-2').onClick(() => this.deleteSelectedBlocks()));
+    menu.addItem((item) => item.setTitle(blockIds.length > 1 ? t("delete_0_block_subtrees_f7506ac5", [blockIds.length]) : t("delete_block_and_its_children_eb336aa1")).setIcon('trash-2').onClick(() => this.deleteSelectedBlocks()));
     menu.showAtMouseEvent(event);
   }
 
   showBlockCopyContextMenu(event, current, blockIds) {
     const menu = new Menu();
     menu.addItem((item) => item
-      .setTitle(blockIds.length > 1 ? `创建 ${blockIds.length} 个块的副本` : '创建块副本')
+      .setTitle(blockIds.length > 1 ? t("duplicate_0_blocks_fb297597", [blockIds.length]) : t("duplicate_block_028b7510"))
       .setIcon('copy-plus')
       .onClick(() => this.duplicateSelectedBlocks()));
     menu.addItem((item) => item
-      .setTitle('复制为 Markdown')
+      .setTitle(t("copy_as_markdown_cd90cc3e"))
       .setIcon('clipboard-copy')
       .onClick(() => void this.copySelectedBlocks()));
     if (current && blockIds.length === 1) {
       menu.addItem((item) => item
-        .setTitle('复制纯文本')
+        .setTitle(t("copy_plain_text_b21e5594"))
         .setIcon('text')
-        .onClick(() => void this.writeClipboardText(current.text || '', '已复制块文本')));
+        .onClick(() => void this.writeClipboardText(current.text || '', t("copied_block_text_9cb955ba"))));
       menu.addSeparator();
       menu.addItem((item) => item
-        .setTitle('复制块引用')
+        .setTitle(t("copy_block_reference_14717340"))
         .setIcon('quote')
         .onClick(() => void this.copyBlockReference(current, 'reference')));
       menu.addItem((item) => item
-        .setTitle('复制块链接')
+        .setTitle(t("copy_block_link_e7623ee1"))
         .setIcon('link')
         .onClick(() => void this.copyBlockReference(current, 'link')));
     }
@@ -7529,11 +7470,11 @@ class BlockspaceView extends ItemView {
   showBlockMoveContextMenu(event, blockIds) {
     const menu = new Menu();
     const canOutdent = blockIds.some((id) => !!Core.getBlock(this.page, id)?.parentId);
-    menu.addItem((item) => item.setTitle('上移同级位置').setIcon('arrow-up').onClick(() => this.moveSelectedBlocks(-1)));
-    menu.addItem((item) => item.setTitle('下移同级位置').setIcon('arrow-down').onClick(() => this.moveSelectedBlocks(1)));
+    menu.addItem((item) => item.setTitle(t("move_up_among_siblings_7adef9d9")).setIcon('arrow-up').onClick(() => this.moveSelectedBlocks(-1)));
+    menu.addItem((item) => item.setTitle(t("move_down_among_siblings_db326306")).setIcon('arrow-down').onClick(() => this.moveSelectedBlocks(1)));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('减少层级').setIcon('outdent').setDisabled(!canOutdent).onClick(() => this.indentSelectedBlocks(-1)));
-    menu.addItem((item) => item.setTitle('移入上一容器').setIcon('indent').onClick(() => this.indentSelectedBlocks(1)));
+    menu.addItem((item) => item.setTitle(t("outdent_16e60cf6")).setIcon('outdent').setDisabled(!canOutdent).onClick(() => this.indentSelectedBlocks(-1)));
+    menu.addItem((item) => item.setTitle(t("move_into_previous_container_14cdf4fc")).setIcon('indent').onClick(() => this.indentSelectedBlocks(1)));
     menu.showAtMouseEvent(event);
   }
 
@@ -7541,21 +7482,21 @@ class BlockspaceView extends ItemView {
     if (!block || !Core.isHeadingBlock(block)) return;
     const menu = new Menu();
     menu.addItem((item) => item
-      .setTitle(block.sectionCollapsed ? '展开章节' : '折叠章节')
+      .setTitle(block.sectionCollapsed ? t("expand_section_f3d88072") : t("collapse_section_d3c1e2b1"))
       .setIcon(block.sectionCollapsed ? 'chevrons-down' : 'chevrons-up')
-      .onClick(() => this.performMutation(block.sectionCollapsed ? '展开章节' : '折叠章节', (page) => {
+      .onClick(() => this.performMutation(block.sectionCollapsed ? t("expand_section_f3d88072") : t("collapse_section_d3c1e2b1"), (page) => {
         Core.toggleHeadingSectionCollapsed(page, block.id);
       })));
-    menu.addItem((item) => item.setTitle('选择整个章节').setIcon('list-collapse').onClick(() => {
+    menu.addItem((item) => item.setTitle(t("select_entire_section_81d95fc2")).setIcon('list-collapse').onClick(() => {
       const sectionIds = Core.getHeadingSectionRootIds(this.page, block.id);
       this.setBlockSelection(sectionIds, sectionIds[0] || null, sectionIds[sectionIds.length - 1] || null);
     }));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('上移整个章节').setIcon('arrow-up-to-line').onClick(() => {
-      this.performMutation('上移整个章节', (page) => Core.moveHeadingSection(page, block.id, -1));
+    menu.addItem((item) => item.setTitle(t("move_entire_section_up_902c0887")).setIcon('arrow-up-to-line').onClick(() => {
+      this.performMutation(t("move_entire_section_up_902c0887"), (page) => Core.moveHeadingSection(page, block.id, -1));
     }));
-    menu.addItem((item) => item.setTitle('下移整个章节').setIcon('arrow-down-to-line').onClick(() => {
-      this.performMutation('下移整个章节', (page) => Core.moveHeadingSection(page, block.id, 1));
+    menu.addItem((item) => item.setTitle(t("move_entire_section_down_88c0a927")).setIcon('arrow-down-to-line').onClick(() => {
+      this.performMutation(t("move_entire_section_down_88c0a927"), (page) => Core.moveHeadingSection(page, block.id, 1));
     }));
     menu.showAtMouseEvent(event);
   }
@@ -7563,14 +7504,14 @@ class BlockspaceView extends ItemView {
   showTocContextMenu(event, block) {
     if (!block || block.type !== 'table-of-contents') return;
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle(block.toc.showNumbers ? '隐藏目录编号' : '显示目录编号').setIcon('list-ordered').onClick(() => {
-      this.performMutation(block.toc.showNumbers ? '隐藏目录编号' : '显示目录编号', (page) => {
+    menu.addItem((item) => item.setTitle(block.toc.showNumbers ? t("hide_table_of_contents_numbering_d7f8f4c5") : t("show_table_of_contents_numbering_e591003d")).setIcon('list-ordered').onClick(() => {
+      this.performMutation(block.toc.showNumbers ? t("hide_table_of_contents_numbering_d7f8f4c5") : t("show_table_of_contents_numbering_e591003d"), (page) => {
         const target = Core.getBlock(page, block.id);
         if (target) target.toc.showNumbers = !target.toc.showNumbers;
       });
     }));
-    menu.addItem((item) => item.setTitle(block.toc.maxLevel === 3 ? '目录仅显示一二级标题' : '目录显示一至三级标题').setIcon('list-tree').onClick(() => {
-      this.performMutation('修改目录层级', (page) => {
+    menu.addItem((item) => item.setTitle(block.toc.maxLevel === 3 ? t("show_heading_levels_1_2_only_c248c826") : t("show_heading_levels_1_3_586270ed")).setIcon('list-tree').onClick(() => {
+      this.performMutation(t("change_table_of_contents_depth_7081a65f"), (page) => {
         const target = Core.getBlock(page, block.id);
         if (target) target.toc.maxLevel = target.toc.maxLevel === 3 ? 2 : 3;
       });
@@ -7584,33 +7525,33 @@ class BlockspaceView extends ItemView {
     const menu = new Menu();
     for (const count of [2, 3]) {
       menu.addItem((item) => item
-        .setTitle(`${count} 栏`)
+        .setTitle(t("0_columns_1253c4f3", [count]))
         .setIcon(count === 2 ? 'columns-2' : 'columns-3')
         .setChecked(config.count === count)
         .onClick(() => {
           if (config.count === count) return;
-          this.performMutation(`切换为 ${count} 栏`, (page) => Core.setColumnsCount(page, block.id, count));
+          this.performMutation(t("switch_to_0_columns_8e849a81", [count]), (page) => Core.setColumnsCount(page, block.id, count));
         }));
     }
     menu.addSeparator();
     const ratios = config.count === 3 ? ['1:1:1', '1:2:1', '2:1:1', '1:1:2'] : ['1:1', '1:2', '2:1'];
     for (const ratio of ratios) {
       menu.addItem((item) => item
-        .setTitle(`比例 ${ratio}`)
+        .setTitle(t("ratio_0_73990d22", [ratio]))
         .setIcon('panel-left-dashed')
         .setChecked(config.ratio === ratio)
         .onClick(() => {
           if (config.ratio === ratio) return;
-          this.performMutation('调整分栏比例', (page) => Core.setColumnsRatio(page, block.id, ratio));
+          this.performMutation(t("change_column_ratio_497d4115"), (page) => Core.setColumnsRatio(page, block.id, ratio));
         }));
     }
     menu.addSeparator();
     menu.addItem((item) => item
-      .setTitle('转为上下排列')
+      .setTitle(t("stack_vertically_e6e662ab"))
       .setIcon('rows-3')
       .onClick(() => {
         let focusId = null;
-        this.performMutation('移除分栏布局', (page) => {
+        this.performMutation(t("remove_column_layout_ebace429"), (page) => {
           const result = Core.unwrapColumns(page, block.id);
           focusId = result && result.focusId;
         });
@@ -7628,7 +7569,7 @@ class BlockspaceView extends ItemView {
 
   storedLinkMarkdown(value, label) {
     const reference = Core.parseStoredReference(value);
-    const text = String(label || reference.target || '链接').replace(/\\/g, '\\\\').replace(/\]/g, '\\]');
+    const text = String(label || reference.target || t("link_305378dd")).replace(/\\/g, '\\\\').replace(/\]/g, '\\]');
     if (reference.kind === 'obsidian') {
       const target = String(reference.target || '').replace(/\|/g, '\\|');
       return reference.mode === 'embed' ? `![[${target}]]` : `[[${target}|${text}]]`;
@@ -7651,11 +7592,11 @@ class BlockspaceView extends ItemView {
     event.preventDefault();
     event.stopPropagation();
     const menu = new Menu();
-    const label = String(element.textContent || element.getAttribute('aria-label') || '链接').replace(/\s+/g, ' ').trim() || '链接';
+    const label = String(element.textContent || element.getAttribute('aria-label') || t("link_305378dd")).replace(/\s+/g, ' ').trim() || t("link_305378dd");
     const resolved = this.plugin.store.resolveStoredReference(value, this.page && this.page.id);
     if (resolved && ['obsidian', 'blockspace-page', 'blockspace-block'].includes(resolved.kind)) {
       menu.addItem((item) => item
-        .setTitle('预览链接')
+        .setTitle(t("preview_link_5e6921cd"))
         .setIcon('scan-eye')
         .onClick((clickEvent) => {
           const ownerWindow = element.ownerDocument.defaultView;
@@ -7663,26 +7604,26 @@ class BlockspaceView extends ItemView {
         }));
     }
     menu.addItem((item) => item
-      .setTitle('打开链接')
+      .setTitle(t("open_link_a2639495"))
       .setIcon('arrow-up-right')
       .onClick((clickEvent) => void this.openStoredLink(value, clickEvent || event)));
     menu.addSeparator();
     menu.addItem((item) => item
-      .setTitle('复制显示文本')
+      .setTitle(t("copy_display_text_9ca43238"))
       .setIcon('text')
-      .onClick(() => void this.writeClipboardText(label, '已复制显示文本')));
+      .onClick(() => void this.writeClipboardText(label, t("copied_display_text_27190faa"))));
     menu.addItem((item) => item
-      .setTitle('复制链接目标')
+      .setTitle(t("copy_link_target_1eb7fdee"))
       .setIcon('link')
-      .onClick(() => void this.writeClipboardText(this.storedLinkClipboardTarget(value), '已复制链接目标')));
+      .onClick(() => void this.writeClipboardText(this.storedLinkClipboardTarget(value), t("copied_link_target_0ce9484b"))));
     menu.addItem((item) => item
-      .setTitle('复制为 Markdown')
+      .setTitle(t("copy_as_markdown_cd90cc3e"))
       .setIcon('clipboard-copy')
-      .onClick(() => void this.writeClipboardText(this.storedLinkMarkdown(value, label), '已复制 Markdown 链接')));
+      .onClick(() => void this.writeClipboardText(this.storedLinkMarkdown(value, label), t("copied_markdown_link_c5edfcc0"))));
     if (resolved && resolved.kind === 'blockspace-block' && resolved.blockId) {
       menu.addSeparator();
       menu.addItem((item) => item
-        .setTitle('查看目标块反向链接')
+        .setTitle(t("view_target_block_backlinks_85e894ce"))
         .setIcon('link-2')
         .onClick(() => this.showBacklinksForBlock(resolved.blockId)));
     }
@@ -7698,18 +7639,18 @@ class BlockspaceView extends ItemView {
     const outerValue = this.storedLinkValue(outerLink);
     if (outerValue) {
       menu.addItem((item) => item
-        .setTitle('打开图片链接目标')
+        .setTitle(t("open_image_link_target_9f78c753"))
         .setIcon('external-link')
         .onClick((clickEvent) => void this.openStoredLink(outerValue, clickEvent || event)));
       menu.addSeparator();
     }
     menu.addItem((item) => item
-      .setTitle('打开原图')
+      .setTitle(t("open_original_image_f75e08cc"))
       .setIcon('image')
       .setDisabled(!source)
       .onClick((clickEvent) => void this.openStoredLink(source, clickEvent || event)));
     menu.addItem((item) => item
-      .setTitle('重新加载图片')
+      .setTitle(t("reload_image_0ad285f1"))
       .setIcon('refresh-cw')
       .setDisabled(!source)
       .onClick(() => {
@@ -7718,22 +7659,22 @@ class BlockspaceView extends ItemView {
         image.ownerDocument.defaultView.requestAnimationFrame(() => image.setAttribute('src', original));
       }));
     menu.addItem((item) => item
-      .setTitle('复制图片地址')
+      .setTitle(t("copy_image_url_81d0d0bf"))
       .setIcon('link')
       .setDisabled(!source)
-      .onClick(() => void this.writeClipboardText(source, '已复制图片地址')));
+      .onClick(() => void this.writeClipboardText(source, t("copied_image_url_a9ef4437"))));
     const alt = String(image.getAttribute('alt') || '').trim();
     menu.addItem((item) => item
-      .setTitle('复制替代文本')
+      .setTitle(t("copy_alt_text_a84a9be1"))
       .setIcon('text')
       .setDisabled(!alt)
-      .onClick(() => void this.writeClipboardText(alt, '已复制图片替代文本')));
+      .onClick(() => void this.writeClipboardText(alt, t("copied_image_alt_text_41ee11be"))));
     const wrapper = image.closest('.bs-block[data-block-id]');
     const block = wrapper && this.page ? Core.getBlock(this.page, wrapper.dataset.blockId) : null;
     if (block && block.type === 'markdown') {
       menu.addSeparator();
       menu.addItem((item) => item
-        .setTitle('编辑所属 Markdown 源码')
+        .setTitle(t("edit_containing_markdown_source_b334f730"))
         .setIcon('file-code-2')
         .onClick(() => {
           const ownerWindow = image.ownerDocument.defaultView;
@@ -7748,22 +7689,22 @@ class BlockspaceView extends ItemView {
     event.preventDefault();
     event.stopPropagation();
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle('定位到标题').setIcon('locate-fixed').onClick(() => this.focusBlock(block.id)));
+    menu.addItem((item) => item.setTitle(t("go_to_heading_fce65b89")).setIcon('locate-fixed').onClick(() => this.focusBlock(block.id)));
     if (Core.isHeadingBlock(block)) {
       menu.addItem((item) => item
-        .setTitle(block.sectionCollapsed ? '展开章节' : '折叠章节')
+        .setTitle(block.sectionCollapsed ? t("expand_section_f3d88072") : t("collapse_section_d3c1e2b1"))
         .setIcon(block.sectionCollapsed ? 'chevrons-down' : 'chevrons-up')
-        .onClick(() => this.performMutation(block.sectionCollapsed ? '展开章节' : '折叠章节', (page) => {
+        .onClick(() => this.performMutation(block.sectionCollapsed ? t("expand_section_f3d88072") : t("collapse_section_d3c1e2b1"), (page) => {
           Core.toggleHeadingSectionCollapsed(page, block.id);
         })));
-      menu.addItem((item) => item.setTitle('选择整个章节').setIcon('list-collapse').onClick(() => {
+      menu.addItem((item) => item.setTitle(t("select_entire_section_81d95fc2")).setIcon('list-collapse').onClick(() => {
         const sectionIds = Core.getHeadingSectionRootIds(this.page, block.id);
         this.setBlockSelection(sectionIds, sectionIds[0] || null, sectionIds[sectionIds.length - 1] || null);
       }));
     }
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('复制标题块链接').setIcon('link').onClick(() => void this.copyBlockReference(block, 'link')));
-    menu.addItem((item) => item.setTitle('查看标题块反向链接').setIcon('link-2').onClick(() => this.showBacklinksForBlock(block.id)));
+    menu.addItem((item) => item.setTitle(t("copy_heading_block_link_fb082285")).setIcon('link').onClick(() => void this.copyBlockReference(block, 'link')));
+    menu.addItem((item) => item.setTitle(t("view_heading_block_backlinks_afb23bb7")).setIcon('link-2').onClick(() => this.showBacklinksForBlock(block.id)));
     menu.showAtMouseEvent(event);
   }
 
@@ -7774,12 +7715,12 @@ class BlockspaceView extends ItemView {
     const menu = new Menu();
     const sourceValue = `blockspace://block/${encodeURIComponent(backlink.sourceBlockId)}`;
     menu.addItem((item) => item
-      .setTitle('打开引用来源')
+      .setTitle(t("open_reference_source_b5033216"))
       .setIcon('arrow-up-right')
       .onClick(() => void this.openPageAtBlock(backlink.sourcePageId, backlink.sourceBlockId)));
     if (element) {
       menu.addItem((item) => item
-        .setTitle('预览引用来源')
+        .setTitle(t("preview_reference_source_6bc47b27"))
         .setIcon('scan-eye')
         .onClick((clickEvent) => {
           const ownerWindow = element.ownerDocument.defaultView;
@@ -7788,18 +7729,18 @@ class BlockspaceView extends ItemView {
     }
     menu.addSeparator();
     menu.addItem((item) => item
-      .setTitle('复制来源块链接')
+      .setTitle(t("copy_source_block_link_095896c9"))
       .setIcon('link')
       .onClick(() => void this.writeClipboardText(
-        `[${String(backlink.sourcePageTitle || '引用来源').replace(/\]/g, '\\]')}](blockspace://block/${encodeURIComponent(backlink.sourceBlockId)})`,
-        '已复制来源块链接',
+        `[${String(backlink.sourcePageTitle || t("reference_source_bde238d2")).replace(/\]/g, '\\]')}](blockspace://block/${encodeURIComponent(backlink.sourceBlockId)})`,
+        t("copied_source_block_link_376534dc"),
       )));
     const snippet = String(backlink.sourceText || backlink.label || '').replace(/\s+/g, ' ').trim();
     menu.addItem((item) => item
-      .setTitle('复制引用内容')
+      .setTitle(t("copy_referenced_content_92f53b1f"))
       .setIcon('text')
       .setDisabled(!snippet)
-      .onClick(() => void this.writeClipboardText(snippet, '已复制引用内容')));
+      .onClick(() => void this.writeClipboardText(snippet, t("copied_referenced_content_94db7b53"))));
     menu.showAtMouseEvent(event);
   }
 
@@ -7808,16 +7749,16 @@ class BlockspaceView extends ItemView {
     event.preventDefault();
     event.stopPropagation();
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle('在页面末尾添加块').setIcon('plus').onClick(() => this.insertBlock(this.getVisibleBlocks().length)));
-    menu.addItem((item) => item.setTitle('选择全部可见块').setIcon('list-checks').setDisabled(!this.getVisibleBlocks().length).onClick(() => {
+    menu.addItem((item) => item.setTitle(t("add_block_at_end_of_page_e38e6a84")).setIcon('plus').onClick(() => this.insertBlock(this.getVisibleBlocks().length)));
+    menu.addItem((item) => item.setTitle(t("select_all_visible_blocks_0ab483c3")).setIcon('list-checks').setDisabled(!this.getVisibleBlocks().length).onClick(() => {
       const ids = this.getVisibleBlockIds();
       this.setBlockSelection(ids, ids[0] || null, ids[ids.length - 1] || null);
     }));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('新建页面').setIcon('square-plus').onClick(() => void this.createPage()));
-    menu.addItem((item) => item.setTitle('导入当前 Markdown').setIcon('file-input').onClick(() => void this.plugin.importActiveMarkdown()));
+    menu.addItem((item) => item.setTitle(t("new_page_64451e31")).setIcon('square-plus').onClick(() => void this.createPage()));
+    menu.addItem((item) => item.setTitle(t("import_current_markdown_6e41aaf3")).setIcon('file-input').onClick(() => void this.plugin.importActiveMarkdown()));
     this.addExportMenuItems(menu);
-    menu.addItem((item) => item.setTitle(this.focusMode ? '退出专注模式' : '进入专注模式').setIcon(this.focusMode ? 'minimize-2' : 'maximize-2').onClick(() => this.toggleFocusMode()));
+    menu.addItem((item) => item.setTitle(this.focusMode ? t("exit_focus_mode_3f6477ba") : t("enter_focus_mode_b2c1df34")).setIcon(this.focusMode ? 'minimize-2' : 'maximize-2').onClick(() => this.toggleFocusMode()));
     menu.showAtMouseEvent(event);
   }
 
@@ -7826,14 +7767,14 @@ class BlockspaceView extends ItemView {
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
     if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle('打开').setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
-    menu.addItem((item) => item.setTitle('复制页面链接').setIcon('link').onClick(() => {
-      const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
-      void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
+    menu.addItem((item) => item.setTitle(t("open_c771248e")).setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
+    menu.addItem((item) => item.setTitle(t("copy_page_link_95119ea5")).setIcon('link').onClick(() => {
+      const label = String(meta.title || t('untitled')).replace(/\]/g, '\\]');
+      void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, t("copied_page_link_5db49983"));
     }));
     this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('删除页面').setIcon('trash-2').onClick(() => void this.removePage(meta)));
+    menu.addItem((item) => item.setTitle(t("delete_page_24a6ab1e")).setIcon('trash-2').onClick(() => void this.removePage(meta)));
     menu.showAtMouseEvent(event);
   }
 
@@ -7847,12 +7788,12 @@ class BlockspaceView extends ItemView {
     const activeId = this.plugin.store.workspace.activePageId;
     if (deletingActivePage) this.setPage(activeId ? await this.plugin.store.loadPage(activeId) : null);
     this.render();
-    new Notice('页面已删除');
+    new Notice(t("page_deleted_3e296067"));
   }
 
   insertBlock(indexOrAnchor) {
     const block = Core.createBlock();
-    this.performMutation('插入块', (page) => {
+    this.performMutation(t("insert_block_c2672f80"), (page) => {
       if (typeof indexOrAnchor === 'string') Core.insertBlockAfter(page, indexOrAnchor, block);
       else {
         const visible = Core.flattenBlocks(page).filter((candidate) => candidate.type !== 'column');
@@ -7870,7 +7811,7 @@ class BlockspaceView extends ItemView {
     if (!pageId || !Core.PAGE_STATUSES.includes(status)) return false;
     if (this.page && this.page.id === pageId) {
       if (this.page.properties.status === status) return false;
-      this.performMutation('移动页面状态', (page) => { page.properties.status = status; }, { render: false });
+      this.performMutation(t("move_page_status_7fea0f64"), (page) => { page.properties.status = status; }, { render: false });
       if (!(await this.flushSave())) return false;
       this.render();
       return true;
@@ -7885,7 +7826,7 @@ class BlockspaceView extends ItemView {
       return true;
     } catch (error) {
       console.error('Blockspace: board update failed', error);
-      new Notice(error instanceof ConflictError ? '页面已在其他位置修改，未覆盖原内容' : '更新页面状态失败');
+      new Notice(error instanceof ConflictError ? t("page_was_modified_elsewhere_existing_content_was_12a155d7") : t("could_not_update_page_status_55996113"));
       return false;
     }
   }
@@ -7894,23 +7835,23 @@ class BlockspaceView extends ItemView {
     event.preventDefault();
     event.stopPropagation();
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle('打开').setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
-    menu.addItem((item) => item.setTitle('复制页面链接').setIcon('link').onClick(() => {
-      const label = String(meta.title || 'Untitled').replace(/\]/g, '\\]');
-      void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, '已复制页面链接');
+    menu.addItem((item) => item.setTitle(t("open_c771248e")).setIcon('arrow-up-right').onClick(() => void this.openPage(meta.id)));
+    menu.addItem((item) => item.setTitle(t("copy_page_link_95119ea5")).setIcon('link').onClick(() => {
+      const label = String(meta.title || t('untitled')).replace(/\]/g, '\\]');
+      void this.writeClipboardText(`[${label}](blockspace://page/${encodeURIComponent(meta.id)})`, t("copied_page_link_5db49983"));
     }));
     this.addExportMenuItems(menu, () => this.plugin.store.loadPage(meta.id));
     menu.addSeparator();
     for (const status of Core.PAGE_STATUSES) {
       menu.addItem((item) => item
-        .setTitle(`移动到“${STATUS_LABELS[status]}”`)
+        .setTitle(t("move_to_0_2e72932a", [STATUS_LABELS[status]]))
         .setIcon(status === 'done' ? 'circle-check-big' : status === 'doing' ? 'loader-circle' : 'circle-dashed')
         .setChecked(meta.status === status)
         .setDisabled(meta.status === status)
         .onClick(() => void this.movePageToStatus(meta.id, status)));
     }
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('删除页面').setIcon('trash-2').onClick(() => void this.removePage(meta)));
+    menu.addItem((item) => item.setTitle(t("delete_page_24a6ab1e")).setIcon('trash-2').onClick(() => void this.removePage(meta)));
     menu.showAtMouseEvent(event);
   }
 
@@ -7939,7 +7880,7 @@ class BlockspaceView extends ItemView {
       for (const meta of pages.filter((page) => page.status === status)) {
         const card = cards.createDiv({
           cls: 'bs-board-card',
-          attr: { role: 'group', 'aria-label': `页面 ${meta.title}`, 'data-page-id': meta.id },
+          attr: { role: 'group', 'aria-label': t("page_0_96add9f7", [meta.title]), 'data-page-id': meta.id },
         });
         card.draggable = true;
         card.addEventListener('dragstart', (event) => {
@@ -7948,7 +7889,7 @@ class BlockspaceView extends ItemView {
         });
         const openButton = card.createEl('button', {
           cls: 'bs-card-open',
-          attr: { type: 'button', 'aria-label': `打开页面 ${meta.title}` },
+          attr: { type: 'button', 'aria-label': t("open_page_0_e5ee4307", [meta.title]) },
         });
         openButton.addEventListener('click', () => void this.openPage(meta.id));
         // All card layout lives on this div, never on the button itself:
@@ -7969,10 +7910,10 @@ class BlockspaceView extends ItemView {
         const firstTag = Array.isArray(meta.tags) ? meta.tags[0] : null;
         if (firstTag) cardMeta.createSpan({ cls: 'bs-card-tag', text: `#${firstTag}` });
         cardMeta.createSpan({ cls: 'bs-card-date', text: new Date(meta.updatedAt).toLocaleDateString() });
-        const moveButton = createButton(card, 'bs-card-move', `页面“${meta.title}”的更多操作`, 'ellipsis');
+        const moveButton = createButton(card, 'bs-card-move', t("more_actions_for_page_0_4c0edcbb", [meta.title]), 'ellipsis');
         moveButton.addEventListener('click', (event) => this.showBoardCardMenu(event, meta));
       }
-      const addCard = createButton(column, 'bs-board-add', '新增页面', 'plus', '新增页面');
+      const addCard = createButton(column, 'bs-board-add', t("new_page_51a821f2"), 'plus', t("new_page_51a821f2"));
       addCard.addEventListener('click', () => void this.createPage(status));
     }
   }
@@ -7989,10 +7930,10 @@ class BlockspaceView extends ItemView {
     if (options.heading !== false) {
       const heading = section.createDiv({ cls: 'bs-backlinks-heading' });
       const headingText = heading.createDiv({ cls: 'bs-right-title' });
-      headingText.createSpan({ text: targetBlockId ? '块反向链接' : '反向链接' });
+      headingText.createSpan({ text: targetBlockId ? t("block_backlinks_9d076af6") : t("backlinks_639a9e8a") });
       headingText.createSpan({ cls: 'bs-backlinks-count', text: String(backlinks.length) });
       if (targetBlockId) {
-        const clear = createButton(heading, 'bs-backlinks-clear', '返回页面反链', 'x');
+        const clear = createButton(heading, 'bs-backlinks-clear', t("return_to_page_backlinks_21bae81c"), 'x');
         clear.addEventListener('click', () => {
           this.backlinkTargetBlockId = null;
           if (options.inspector) this.plugin.notifyContextChanged();
@@ -8004,13 +7945,13 @@ class BlockspaceView extends ItemView {
       const target = Core.getBlock(this.page, targetBlockId);
       section.createDiv({
         cls: 'bs-backlinks-target',
-        text: target && target.text ? target.text.replace(/\s+/g, ' ').slice(0, 120) : '当前块',
+        text: target && target.text ? target.text.replace(/\s+/g, ' ').slice(0, 120) : t("current_block_a02ff874"),
       });
     }
     if (!backlinks.length) {
       section.createDiv({
         cls: 'bs-empty-small',
-        text: targetBlockId ? '还没有其他块引用这里' : '还没有页面或块引用这里',
+        text: targetBlockId ? t("no_other_blocks_reference_this_block_yet_9c0676a5") : t("no_pages_or_blocks_reference_this_page_yet_b69b6178"),
       });
       return;
     }
@@ -8018,17 +7959,17 @@ class BlockspaceView extends ItemView {
     for (const backlink of backlinks) {
       const item = list.createEl('button', {
         cls: 'bs-backlink-item',
-        attr: { type: 'button', 'aria-label': `打开 ${backlink.sourcePageTitle} 中的引用` },
+        attr: { type: 'button', 'aria-label': t("open_reference_in_0_cec9fbfe", [backlink.sourcePageTitle]) },
       });
       item.__blockspaceBacklink = backlink;
       const itemHeader = item.createDiv({ cls: 'bs-backlink-item-header' });
-      itemHeader.createSpan({ cls: 'bs-backlink-page', text: backlink.sourcePageTitle || 'Untitled' });
+      itemHeader.createSpan({ cls: 'bs-backlink-page', text: backlink.sourcePageTitle || t('untitled') });
       itemHeader.createSpan({
         cls: `bs-backlink-mode is-${backlink.mode || 'link'}`,
-        text: ({ link: '链接', reference: '引用', embed: '嵌入' })[backlink.mode] || '链接',
+        text: ({ link: t("link_305378dd"), reference: t("quote_e0ec651f"), embed: t("embed_00a0cf27") })[backlink.mode] || t("link_305378dd"),
       });
       const snippet = String(backlink.sourceText || backlink.label || '').replace(/\s+/g, ' ').trim();
-      item.createDiv({ cls: 'bs-backlink-snippet', text: snippet || '空块' });
+      item.createDiv({ cls: 'bs-backlink-snippet', text: snippet || t("empty_block_fb8e593d") });
       item.addEventListener('click', () => void this.openPageAtBlock(backlink.sourcePageId, backlink.sourceBlockId));
       item.addEventListener('contextmenu', (event) => this.showBacklinkContextMenu(event, backlink, item));
     }
@@ -8048,7 +7989,7 @@ class BlockspaceView extends ItemView {
     if (!(await this.flushSave())) return;
     const page = await this.plugin.store.loadPage(id);
     if (!page) {
-      new Notice('无法打开该页面');
+      new Notice(t("could_not_open_page_cc646807"));
       return;
     }
     this.setPage(page);
@@ -8061,7 +8002,7 @@ class BlockspaceView extends ItemView {
 
   async createPage(status = 'todo') {
     if (!(await this.flushSave())) return;
-    this.setPage(await this.plugin.store.createPage('Untitled', { status }));
+    this.setPage(await this.plugin.store.createPage(t('untitled'), { status }));
     this.activeTab = 'document';
     this.render();
     const title = this.contentEl.querySelector('.bs-page-title');
@@ -8123,17 +8064,17 @@ class BlockspaceView extends ItemView {
           this.saveIssue = {
             type: 'conflict',
             conflictPath: error.details.conflictPath || '',
-            message: error.message || '保存冲突',
+            message: error.message || t("save_conflict_8c2c84c9"),
           };
           this.setSaveState('conflict');
-          new Notice(`Blockspace 检测到保存冲突，已保留恢复副本：${error.details.conflictPath || ''}`);
+          new Notice(t("blockspace_detected_a_save_conflict_recovery_cop_9f782c52", [error.details.conflictPath || '']));
         } else {
           this.saveIssue = {
             type: 'error',
-            message: error && (error.message || String(error)) || '保存失败',
+            message: error && (error.message || String(error)) || t("save_failed_6309a3bb"),
           };
           this.setSaveState('error');
-          new Notice('Blockspace 保存失败，待恢复日志已保留');
+          new Notice(t("blockspace_save_failed_the_recovery_journal_is_p_87775656"));
         }
         this.renderStatusBanners();
         throw error;
@@ -8171,7 +8112,7 @@ class BlockspaceInspectorView extends ItemView {
   }
 
   getViewType() { return INSPECTOR_VIEW_TYPE; }
-  getDisplayText() { return 'Blockspace 检查器'; }
+  getDisplayText() { return t("blockspace_inspector_4731cfed"); }
   getIcon() { return 'panel-right'; }
 
   async onOpen() {
@@ -8190,46 +8131,46 @@ class BlockspaceInspectorView extends ItemView {
     const page = view && view.page;
     const header = this.contentEl.createDiv({ cls: 'bs-inspector-header' });
     const titleWrap = header.createDiv({ cls: 'bs-inspector-title-wrap' });
-    titleWrap.createDiv({ cls: 'bs-inspector-title', text: page ? page.title : '页面检查器' });
-    const refresh = createButton(header, 'bs-icon-button', '刷新检查器', 'refresh-cw');
+    titleWrap.createDiv({ cls: 'bs-inspector-title', text: page ? page.title : t("page_inspector_83d09bf7") });
+    const refresh = createButton(header, 'bs-icon-button', t("refresh_inspector_247b0570"), 'refresh-cw');
     refresh.addEventListener('click', () => this.render());
     if (!view || !page) {
       const empty = this.contentEl.createDiv({ cls: 'bs-inspector-empty' });
       const icon = empty.createDiv({ cls: 'bs-inspector-empty-icon' });
       setIcon(icon, 'panel-right');
-      empty.createDiv({ cls: 'bs-inspector-empty-title', text: '没有活动的 Blockspace 页面' });
-      empty.createDiv({ cls: 'bs-inspector-empty-hint', text: '打开一个 Blockspace 工作台后，这里会显示属性、大纲和页面状态。' });
+      empty.createDiv({ cls: 'bs-inspector-empty-title', text: t("no_active_blockspace_page_7f255c41") });
+      empty.createDiv({ cls: 'bs-inspector-empty-hint', text: t("open_a_blockspace_workspace_to_see_properties_ou_96d7df15") });
       return;
     }
 
-    const properties = this.createSection('页面属性', 'sliders-horizontal');
+    const properties = this.createSection(t("page_properties_08c11548"), 'sliders-horizontal');
     const statusRow = properties.createDiv({ cls: 'bs-inspector-property' });
-    statusRow.createSpan({ cls: 'bs-inspector-property-label', text: '状态' });
+    statusRow.createSpan({ cls: 'bs-inspector-property-label', text: t("status_6320b4a8") });
     const statusSelect = statusRow.createEl('select', { cls: 'dropdown' });
     for (const [value, label] of Object.entries(STATUS_LABELS)) statusSelect.createEl('option', { value, text: label });
     statusSelect.value = page.properties.status;
-    statusSelect.addEventListener('change', () => view.performMutation('修改页面状态', (target) => { target.properties.status = statusSelect.value; }));
+    statusSelect.addEventListener('change', () => view.performMutation(t("change_page_status_2af8342f"), (target) => { target.properties.status = statusSelect.value; }));
 
     const priorityRow = properties.createDiv({ cls: 'bs-inspector-property' });
-    priorityRow.createSpan({ cls: 'bs-inspector-property-label', text: '优先级' });
+    priorityRow.createSpan({ cls: 'bs-inspector-property-label', text: t("priority_565d6460") });
     const prioritySelect = priorityRow.createEl('select', { cls: 'dropdown' });
     for (const [value, label] of Object.entries(PRIORITY_LABELS)) prioritySelect.createEl('option', { value, text: label });
     prioritySelect.value = page.properties.priority;
-    prioritySelect.addEventListener('change', () => view.performMutation('修改页面优先级', (target) => { target.properties.priority = prioritySelect.value; }));
+    prioritySelect.addEventListener('change', () => view.performMutation(t("change_page_priority_6f1193d4"), (target) => { target.properties.priority = prioritySelect.value; }));
 
     const tagsRow = properties.createDiv({ cls: 'bs-inspector-property is-column' });
-    tagsRow.createSpan({ cls: 'bs-inspector-property-label', text: '标签' });
-    const tags = tagsRow.createEl('input', { cls: 'bs-inspector-tags-input', attr: { type: 'text', placeholder: '用逗号分隔标签' } });
+    tagsRow.createSpan({ cls: 'bs-inspector-property-label', text: t("tags_1d0fd5f9") });
+    const tags = tagsRow.createEl('input', { cls: 'bs-inspector-tags-input', attr: { type: 'text', placeholder: t("separate_tags_with_commas_7738d332") } });
     tags.value = Array.isArray(page.properties.tags) ? page.properties.tags.join(', ') : '';
-    tags.addEventListener('change', () => view.performMutation('修改页面标签', (target) => {
+    tags.addEventListener('change', () => view.performMutation(t("change_page_tags_fd14c4f7"), (target) => {
       target.properties.tags = tags.value.split(/[,，]/).map((value) => value.trim()).filter(Boolean);
     }));
 
-    const outline = this.createSection('大纲', 'list-tree');
+    const outline = this.createSection(t("outline_79fadbc2"), 'list-tree');
     const headings = Core.deriveOutline(page);
     outline.addClass('bs-inspector-outline-tree');
     outline.setAttribute('role', 'tree');
-    if (!headings.length) outline.createDiv({ cls: 'bs-inspector-muted', text: '还没有标题块' });
+    if (!headings.length) outline.createDiv({ cls: 'bs-inspector-muted', text: t("no_heading_blocks_yet_9b79bee2") });
     const outlineBaseLevel = headings.length ? Math.min(...headings.map((heading) => heading.level)) : 1;
     for (const heading of headings) {
       const relativeLevel = Math.max(0, heading.level - outlineBaseLevel);
@@ -8256,12 +8197,12 @@ class BlockspaceInspectorView extends ItemView {
     const backlinkCount = (backlinkTargetId
       ? this.plugin.store.getBacklinksForBlock(backlinkTargetId)
       : this.plugin.store.getBacklinksForPage(page.id)).length;
-    const backlinks = this.createSection(backlinkTargetId ? '块反向链接' : '反向链接', 'link-2', {
+    const backlinks = this.createSection(backlinkTargetId ? t("block_backlinks_9d076af6") : t("backlinks_639a9e8a"), 'link-2', {
       count: backlinkCount,
       action: backlinkTargetId
         ? {
           icon: 'x',
-          label: '返回页面反链',
+          label: t("return_to_page_backlinks_21bae81c"),
           onClick: () => {
             view.backlinkTargetBlockId = null;
             this.plugin.notifyContextChanged();
@@ -8271,21 +8212,21 @@ class BlockspaceInspectorView extends ItemView {
     });
     view.renderBacklinksPanel(backlinks, { inspector: true, heading: false });
 
-    const stats = this.createSection('页面统计', 'chart-no-axes-column-increasing');
+    const stats = this.createSection(t("page_statistics_7eb184db"), 'chart-no-axes-column-increasing');
     const todos = page.blocks.filter((block) => block.type === 'todo');
     for (const [label, value] of [
-      ['块数量', page.blocks.length],
-      ['待办完成', `${todos.filter((block) => block.checked).length}/${todos.length}`],
-      ['修订版本', page.revision],
+      [t("block_count_838fcc7b"), page.blocks.length],
+      [t("to_do_completion_f1dd34d8"), `${todos.filter((block) => block.checked).length}/${todos.length}`],
+      [t("revision_f3d6cf15"), page.revision],
     ]) {
       const row = stats.createDiv({ cls: 'bs-inspector-stat' });
       row.createSpan({ text: label });
       row.createSpan({ cls: 'bs-inspector-stat-value', text: String(value) });
     }
 
-    const storage = this.createSection('高级', 'database');
+    const storage = this.createSection(t("advanced_d6e61888"), 'database');
     storage.createDiv({ cls: 'bs-inspector-storage-path', text: `${this.plugin.store.pagesFolder}/${page.id}.json` });
-    const diagnostics = createButton(storage, 'bs-inspector-action', '打开诊断与恢复', 'stethoscope', '诊断与恢复');
+    const diagnostics = createButton(storage, 'bs-inspector-action', t("open_diagnostics_and_recovery_7acf8511"), 'stethoscope', t("diagnostics_and_recovery_18b77e4a"));
     diagnostics.addEventListener('click', () => new BlockspaceDiagnosticsModal(this.app, this.plugin).open());
   }
 
@@ -8320,25 +8261,25 @@ class BlockspaceDiagnosticsModal extends Modal {
     const { contentEl } = this;
     clearElement(contentEl);
     contentEl.addClass('bs-diagnostics');
-    contentEl.createEl('h2', { text: 'Blockspace 诊断与恢复' });
-    const loading = contentEl.createDiv({ cls: 'bs-diagnostics-loading', text: '正在检查结构化数据…' });
+    contentEl.createEl('h2', { text: t("blockspace_diagnostics_and_recovery_bf9774f3") });
+    const loading = contentEl.createDiv({ cls: 'bs-diagnostics-loading', text: t("checking_structured_data_c03a5037") });
     let report;
     try {
       report = await this.plugin.store.diagnose();
     } catch (error) {
-      loading.setText(`诊断失败：${error.message || error}`);
+      loading.setText(t("diagnostics_failed_0_6ab7a79f", [error.message || error]));
       return;
     }
     loading.remove();
     const summary = contentEl.createDiv({ cls: 'bs-diagnostics-summary' });
     const items = [
-      ['页面文件', report.pages],
-      ['待恢复日志', report.pendingJournals],
-      ['历史快照', report.snapshots],
-      ['恢复副本', report.recoveryFiles],
-      ['回收站页面', report.trashFiles],
-      ['错误', report.errors.length],
-      ['警告', report.warnings.length],
+      [t("page_files_3a2f2732"), report.pages],
+      [t("recovery_journals_5e92640e"), report.pendingJournals],
+      [t("history_snapshots_fc9f1fda"), report.snapshots],
+      [t("recovery_copies_8890c176"), report.recoveryFiles],
+      [t("trashed_pages_6b453fe8"), report.trashFiles],
+      [t("errors_0bc1fb72"), report.errors.length],
+      [t("warnings_a8b7a448"), report.warnings.length],
     ];
     for (const [label, value] of items) {
       const card = summary.createDiv({ cls: 'bs-diagnostic-card' });
@@ -8348,33 +8289,33 @@ class BlockspaceDiagnosticsModal extends Modal {
     const renderIssues = (title, issues, type) => {
       const section = contentEl.createDiv({ cls: `bs-diagnostic-section is-${type}` });
       section.createEl('h3', { text: title });
-      if (!issues.length) section.createDiv({ cls: 'bs-diagnostic-ok', text: '未发现问题' });
+      if (!issues.length) section.createDiv({ cls: 'bs-diagnostic-ok', text: t("no_issues_found_e5e8b8f3") });
       else for (const issue of issues) section.createDiv({ cls: 'bs-diagnostic-issue', text: issue });
     };
-    renderIssues('错误', report.errors, 'error');
-    renderIssues('警告', report.warnings, 'warning');
+    renderIssues(t("errors_0bc1fb72"), report.errors, 'error');
+    renderIssues(t("warnings_a8b7a448"), report.warnings, 'warning');
     const actions = contentEl.createDiv({ cls: 'bs-diagnostic-actions' });
-    const rerun = createButton(actions, 'mod-cta', '重新检查', 'refresh-cw', '重新检查');
+    const rerun = createButton(actions, 'mod-cta', t("check_again_c25fb86b"), 'refresh-cw', t("check_again_c25fb86b"));
     rerun.addEventListener('click', () => void this.renderReport());
-    const rebuild = createButton(actions, '', '重建页面索引', 'list-restart', '重建索引');
+    const rebuild = createButton(actions, '', t("rebuild_page_index_e75bff58"), 'list-restart', t("rebuild_index_9b178a29"));
     rebuild.addEventListener('click', async () => {
       rebuild.disabled = true;
       try {
         const count = await this.plugin.store.rebuildWorkspaceIndex();
-        new Notice(`Blockspace 已重建 ${count} 个页面索引`);
+        new Notice(t("blockspace_rebuilt_0_page_index_entries_546e35a4", [count]));
         for (const view of this.plugin.views) view.render();
         await this.renderReport();
       } finally {
         rebuild.disabled = false;
       }
     });
-    const recover = createButton(actions, '', '恢复未完成保存', 'life-buoy', '恢复日志');
+    const recover = createButton(actions, '', t("recover_unfinished_saves_8c450723"), 'life-buoy', t("recover_journals_cac1821f"));
     recover.addEventListener('click', async () => {
       recover.disabled = true;
       try {
         const count = await this.plugin.store.recoverPendingJournals();
         if (count > 0) await this.plugin.store.rebuildWorkspaceIndex();
-        new Notice(count ? `已恢复 ${count} 个页面` : '没有需要恢复的页面');
+        new Notice(count ? t("recovered_0_pages_8d1b3e64", [count]) : t("no_pages_need_recovery_8c2cca1a"));
         await this.renderReport();
       } finally {
         recover.disabled = false;
@@ -8387,36 +8328,36 @@ class BlockspaceDiagnosticsModal extends Modal {
       }
       const view = await this.plugin.activateView();
       if (view) await view.openPage(page.id);
-      new Notice(`已恢复为新页面：${page.title}`);
+      new Notice(t("restored_as_a_new_page_0_e7c0dab2", [page.title]));
       await this.renderReport();
     };
     const activeView = this.plugin.getActiveView();
-    const restoreSnapshot = createButton(actions, '', '将当前页最近快照恢复为新页面', 'history', '恢复当前页快照');
+    const restoreSnapshot = createButton(actions, '', t("restore_the_current_page_s_latest_snapshot_as_a__fdbc641b"), 'history', t("restore_current_page_snapshot_994afcb1"));
     restoreSnapshot.disabled = !(activeView && activeView.page);
     restoreSnapshot.addEventListener('click', async () => {
       restoreSnapshot.disabled = true;
       try {
         const pageId = this.plugin.getActiveView()?.page?.id;
         const restored = await this.plugin.store.restoreLatestSnapshot(pageId);
-        await openRestoredPage(restored, '当前页面没有可恢复的快照');
+        await openRestoredPage(restored, t("no_recoverable_snapshot_for_the_current_page_5f70e150"));
       } finally {
         restoreSnapshot.disabled = !(this.plugin.getActiveView()?.page);
       }
     });
-    const restoreConflict = createButton(actions, '', '将最近冲突中的本地版本恢复为新页面', 'copy-plus', '恢复最近冲突');
+    const restoreConflict = createButton(actions, '', t("restore_the_local_version_from_the_latest_confli_233b4365"), 'copy-plus', t("restore_latest_conflict_d75c3db0"));
     restoreConflict.addEventListener('click', async () => {
       restoreConflict.disabled = true;
       try {
-        await openRestoredPage(await this.plugin.store.restoreLatestConflict(), '没有可恢复的冲突副本');
+        await openRestoredPage(await this.plugin.store.restoreLatestConflict(), t("no_recoverable_conflict_copy_e2c6a786"));
       } finally {
         restoreConflict.disabled = false;
       }
     });
-    const restoreTrash = createButton(actions, '', '将最近删除页面恢复为新页面', 'archive-restore', '恢复最近删除');
+    const restoreTrash = createButton(actions, '', t("restore_the_most_recently_deleted_page_as_a_new__9ff12c7f"), 'archive-restore', t("restore_last_deletion_b00dda17"));
     restoreTrash.addEventListener('click', async () => {
       restoreTrash.disabled = true;
       try {
-        await openRestoredPage(await this.plugin.store.restoreLatestTrash(), '回收站中没有可恢复的页面');
+        await openRestoredPage(await this.plugin.store.restoreLatestTrash(), t("no_recoverable_pages_in_trash_cec22518"));
       } finally {
         restoreTrash.disabled = false;
       }
@@ -8435,19 +8376,31 @@ class BlockspaceSettingTab extends PluginSettingTab {
     clearElement(containerEl);
     // The field only stages a value: migrating on every keystroke would copy the
     // whole data directory once per character.
+    new Setting(containerEl)
+      .setName(t('language_name'))
+      .setDesc(t('language_description'))
+      .addDropdown((dropdown) => dropdown
+        .addOption('en', 'English')
+        .addOption('zh-CN', '简体中文')
+        .setValue(normalizeLanguage(this.plugin.settings.language))
+        .onChange(async (value) => {
+          this.plugin.settings.language = normalizeLanguage(value);
+          await this.plugin.saveSettings();
+          new Notice(t('language_reload'));
+        }));
     let pendingDataFolder = this.plugin.settings.dataFolder;
     new Setting(containerEl)
-      .setName('数据目录')
-      .setDesc('Blockspace 结构化页面存储目录。iOS / iPadOS 对点开头的隐藏目录限制较多，若移动端提示无权限保存，可改为不带点的名字（例如 Blockspace Data）。改好后点“迁移并应用”，原目录会保留为备份，重启插件后生效。')
+      .setName(t("data_folder_95ad5bf3"))
+      .setDesc(t("folder_for_blockspace_structured_pages_ios_ipado_1b7b78d5"))
       .addText((text) => text
         .setValue(this.plugin.settings.dataFolder)
         .onChange((value) => { pendingDataFolder = value; }))
       .addButton((button) => button
-        .setButtonText('迁移并应用')
+        .setButtonText(t("migrate_and_apply_4c74148d"))
         .onClick(async () => {
           const nextFolder = String(pendingDataFolder || '').trim() || DEFAULT_SETTINGS.dataFolder;
           if (!this.plugin.store || normalizePath(nextFolder) === this.plugin.store.folder) {
-            new Notice('数据目录未变化');
+            new Notice(t("data_folder_is_unchanged_da90a1d9"));
             return;
           }
           button.setDisabled(true);
@@ -8456,45 +8409,45 @@ class BlockspaceSettingTab extends PluginSettingTab {
             this.plugin.settings.dataFolder = result.target;
             await this.plugin.saveSettings();
             new Notice(
-              `已复制 ${result.moved} 个文件到 ${result.target}，原目录 ${result.source} 保留为备份。请重启 Obsidian 后生效。`,
+              t("copied_0_files_to_1_original_folder_2_remains_as_3421dba3", [result.moved, result.target, result.source]),
               15000,
             );
           } catch (error) {
             console.error('Blockspace: data folder migration failed', error);
-            new Notice(`数据目录迁移失败：${error && error.message ? error.message : error}`, 15000);
+            new Notice(t("data_folder_migration_failed_0_0377cfd9", [error && error.message ? error.message : error]), 15000);
           } finally {
             button.setDisabled(false);
           }
         }));
     new Setting(containerEl)
-      .setName('Markdown 导出目录')
-      .setDesc('导出页面时保存 Markdown 文件的位置。')
+      .setName(t("markdown_export_folder_6c66d223"))
+      .setDesc(t("where_exported_markdown_page_files_are_saved_f65e1c39"))
       .addText((text) => text.setValue(this.plugin.settings.exportFolder).onChange(async (value) => {
         this.plugin.settings.exportFolder = value.trim() || DEFAULT_SETTINGS.exportFolder;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('附件目录')
-      .setDesc('粘贴、拖入或上传的图片、视频、音频和文件会写入此 Vault 相对目录。')
+      .setName(t("attachment_folder_d77c5bbe"))
+      .setDesc(t("images_video_audio_and_files_pasted_dropped_or_u_382831c0"))
       .addText((text) => text.setValue(this.plugin.settings.attachmentFolder || DEFAULT_SETTINGS.attachmentFolder).onChange(async (value) => {
         this.plugin.settings.attachmentFolder = value.trim() || DEFAULT_SETTINGS.attachmentFolder;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('自动生成原生 Markdown')
-      .setDesc('每次保存、重命名或删除 Blockspace 页面时，在仓库中同步对应的 Obsidian 原生 Markdown。JSON 仍是唯一事实源，生成文件会被自动更新。')
+      .setName(t("automatically_generate_native_markdown_f42b319c"))
+      .setDesc(t("sync_corresponding_obsidian_native_markdown_when_a04cc0ab"))
       .addToggle((toggle) => toggle.setValue(!!this.plugin.settings.nativeMarkdownSyncEnabled).onChange(async (value) => {
         this.plugin.settings.nativeMarkdownSyncEnabled = value;
         await this.plugin.saveSettings();
         if (value) {
           await this.plugin.ensureStore();
           const count = await this.plugin.store.syncNativeMarkdown();
-          new Notice(`已生成 ${count} 个原生 Markdown 页面`);
+          new Notice(t("generated_0_native_markdown_pages_2dd9b2b9", [count]));
         }
       }));
     new Setting(containerEl)
-      .setName('原生 Markdown 目录')
-      .setDesc('自动生成文件所在的仓库相对目录。文件使用 Obsidian 双链、嵌入、Callout 和块 ID，不包含 Blockspace 包装注释或内联样式。')
+      .setName(t("native_markdown_folder_c34c165c"))
+      .setDesc(t("vault_relative_folder_for_generated_files_files__1e8f113c"))
       .addText((text) => text.setValue(this.plugin.settings.nativeMarkdownFolder || DEFAULT_SETTINGS.nativeMarkdownFolder).onChange(async (value) => {
         this.plugin.settings.nativeMarkdownFolder = value.trim() || DEFAULT_SETTINGS.nativeMarkdownFolder;
         await this.plugin.saveSettings();
@@ -8504,8 +8457,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
         }
       }));
     new Setting(containerEl)
-      .setName('从文件树直接打开 Blockspace')
-      .setDesc('单击 Blockspace Notes 或 Bridge 中的生成文件时，在当前标签直接进入对应 Blockspace 页面。右键菜单仍可选择“以原生 Markdown 打开”。')
+      .setName(t("open_blockspace_directly_from_the_file_explorer_336ee7a7"))
+      .setDesc(t("clicking_a_generated_file_in_blockspace_notes_or_b9df6182"))
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.openGeneratedMarkdownInBlockspace !== false)
         .onChange(async (value) => {
@@ -8513,8 +8466,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
     new Setting(containerEl)
-      .setName('Markdown 块 ID 输出')
-      .setDesc('控制手动导出、原生 Markdown 和 Bridge 中的 ^bs-… 标识。不导出时，块链接会自动降级为标题或页面链接。')
+      .setName(t("markdown_block_id_output_9f32f6e6"))
+      .setDesc(t("control_bs_anchors_in_manual_exports_native_mark_63f71da7"))
       .addDropdown((dropdown) => {
         for (const [value, label] of Object.entries(MARKDOWN_BLOCK_ID_MODES)) dropdown.addOption(value, label);
         dropdown.setValue(MARKDOWN_BLOCK_ID_MODES[this.plugin.settings.markdownBlockIdMode]
@@ -8531,27 +8484,27 @@ class BlockspaceSettingTab extends PluginSettingTab {
         });
       });
     new Setting(containerEl)
-      .setName('同步无损 Markdown Bridge')
-      .setDesc('兼容旧工作流的无损往返格式，会保留 Blockspace 注释和必要的 HTML。若只需要原生笔记，请使用上方的“自动生成原生 Markdown”。')
+      .setName(t("sync_lossless_markdown_bridge_ed49c4a1"))
+      .setDesc(t("lossless_round_trip_format_for_existing_workflow_3bc79d47"))
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.markdownBridgeEnabled !== false).onChange(async (value) => {
         this.plugin.settings.markdownBridgeEnabled = value;
         await this.plugin.saveSettings();
         if (value) {
           const count = await this.plugin.store.syncMarkdownBridge();
-          new Notice(`已同步 ${count} 个 Blockspace 页面到 Obsidian`);
+          new Notice(t("synced_0_blockspace_pages_to_obsidian_9efa6b05", [count]));
         }
       }));
     new Setting(containerEl)
-      .setName('双链 Bridge 目录')
-      .setDesc('无损 Bridge 文件目录。文件可供 Obsidian 索引，但请在 Blockspace 中编辑内容。')
+      .setName(t("wikilink_bridge_folder_ab86933e"))
+      .setDesc(t("folder_for_lossless_bridge_files_obsidian_can_in_a167850a"))
       .addText((text) => text.setValue(this.plugin.settings.markdownBridgeFolder || DEFAULT_SETTINGS.markdownBridgeFolder).onChange(async (value) => {
         this.plugin.settings.markdownBridgeFolder = value.trim() || DEFAULT_SETTINGS.markdownBridgeFolder;
         await this.plugin.saveSettings();
         if (this.plugin.settings.markdownBridgeEnabled) await this.plugin.store.syncMarkdownBridge();
       }));
     new Setting(containerEl)
-      .setName('Obsidian 原生 Markdown 渲染')
-      .setDesc('控制整页阅读模式和未聚焦块是否使用 Obsidian MarkdownRenderer。原生阅读模式兼容性最稳。')
+      .setName(t("obsidian_native_markdown_rendering_70efe342"))
+      .setDesc(t("control_whether_full_page_reading_mode_and_unfoc_89ac6760"))
       .addDropdown((dropdown) => {
         for (const [value, label] of Object.entries(MARKDOWN_RENDER_MODES)) dropdown.addOption(value, label);
         dropdown.setValue(MARKDOWN_RENDER_MODES[this.plugin.settings.markdownRenderMode] ? this.plugin.settings.markdownRenderMode : 'reading-only');
@@ -8565,47 +8518,47 @@ class BlockspaceSettingTab extends PluginSettingTab {
         });
       });
     new Setting(containerEl)
-      .setName('自动保存延迟')
-      .setDesc('停止输入后等待多少毫秒写入页面文件。')
+      .setName(t("autosave_delay_1ce5e73c"))
+      .setDesc(t("milliseconds_to_wait_after_typing_stops_before_w_0bb88bc9"))
       .addText((text) => text.setValue(String(this.plugin.settings.autosaveDelay)).onChange(async (value) => {
         const parsed = Number(value);
         this.plugin.settings.autosaveDelay = Number.isFinite(parsed) ? Math.max(100, Math.min(3000, parsed)) : 350;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('撤销历史条数')
-      .setDesc('每个打开页面在内存中保留的事务历史，范围 20–1000。')
+      .setName(t("undo_history_limit_25cf1e2a"))
+      .setDesc(t("transactions_kept_in_memory_for_each_open_page_f_75ddb3be"))
       .addText((text) => text.setValue(String(this.plugin.settings.historyLimit)).onChange(async (value) => {
         const parsed = Number(value);
         this.plugin.settings.historyLimit = Number.isFinite(parsed) ? Math.max(20, Math.min(1000, parsed)) : 150;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('每页恢复快照数')
-      .setDesc('保存新修订前保留旧页面快照，范围 1–100。')
+      .setName(t("recovery_snapshots_per_page_494572c9"))
+      .setDesc(t("keep_old_page_snapshots_before_saving_new_revisi_27c8183f"))
       .addText((text) => text.setValue(String(this.plugin.settings.snapshotLimit)).onChange(async (value) => {
         const parsed = Number(value);
         this.plugin.settings.snapshotLimit = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 12;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('恢复快照最小间隔')
-      .setDesc('连续保存时至少间隔多少分钟才生成下一份完整快照，范围 1–240。待恢复日志仍会在每次保存前写入。')
+      .setName(t("minimum_recovery_snapshot_interval_a4fc4052"))
+      .setDesc(t("minimum_minutes_between_full_snapshots_during_co_f9983bbf"))
       .addText((text) => text.setValue(String(this.plugin.settings.snapshotIntervalMinutes)).onChange(async (value) => {
         const parsed = Number(value);
         this.plugin.settings.snapshotIntervalMinutes = Number.isFinite(parsed) ? Math.max(1, Math.min(240, parsed)) : 5;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('默认展开页面属性')
-      .setDesc('关闭后，状态、优先级和标签会以紧凑摘要显示。')
+      .setName(t("expand_page_properties_by_default_cd725c20"))
+      .setDesc(t("when_off_status_priority_and_tags_appear_in_a_co_88059ce3"))
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.showProperties !== false).onChange(async (value) => {
         this.plugin.settings.showProperties = value;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('界面风格')
-      .setDesc('Notion 风格更克制留白，思源风格更紧凑清晰，Obsidian 原生最大限度跟随当前主题。')
+      .setName(t("interface_style_8d3b8dce"))
+      .setDesc(t("notion_style_uses_more_whitespace_siyuan_style_i_e1ecc390"))
       .addDropdown((dropdown) => {
         for (const [value, label] of Object.entries(VISUAL_STYLES)) dropdown.addOption(value, label);
         dropdown.setValue(VISUAL_STYLES[this.plugin.settings.visualStyle] ? this.plugin.settings.visualStyle : 'notion');
@@ -8616,8 +8569,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
         });
       });
     new Setting(containerEl)
-      .setName('页面密度')
-      .setDesc('紧凑适合持续写作，标准兼顾展示与编辑，沉浸强化封面和页面头部。')
+      .setName(t("page_density_7eec6aab"))
+      .setDesc(t("compact_suits_continuous_writing_standard_balanc_7e929ca5"))
       .addDropdown((dropdown) => {
         for (const [value, label] of Object.entries(PAGE_DENSITIES)) dropdown.addOption(value, label);
         dropdown.setValue(PAGE_DENSITIES[this.plugin.settings.pageDensity] ? this.plugin.settings.pageDensity : 'standard');
@@ -8628,16 +8581,16 @@ class BlockspaceSettingTab extends PluginSettingTab {
         });
       });
     new Setting(containerEl)
-      .setName('正文宽度')
-      .setDesc('正文内容宽度，范围 580–1100 像素。')
+      .setName(t("content_width_e92272f9"))
+      .setDesc(t("body_content_width_from_580_to_1100_pixels_96a14c42"))
       .addText((text) => text.setValue(String(this.plugin.settings.contentWidth)).onChange(async (value) => {
         const parsed = Number(value);
         this.plugin.settings.contentWidth = Number.isFinite(parsed) ? Math.max(580, Math.min(1100, parsed)) : 760;
         await this.plugin.saveSettings();
       }));
     new Setting(containerEl)
-      .setName('正文字体')
-      .setDesc('选择 Blockspace 正文的字体族。跟随 Obsidian 可获得最佳主题兼容性。')
+      .setName(t("body_font_34f1a695"))
+      .setDesc(t("choose_the_font_family_for_blockspace_content_fo_3793fcbf"))
       .addDropdown((dropdown) => {
         for (const [value, label] of Object.entries(FONT_FAMILIES)) dropdown.addOption(value, label);
         dropdown.setValue(FONT_FAMILIES[this.plugin.settings.fontFamily] ? this.plugin.settings.fontFamily : 'theme');
@@ -8648,8 +8601,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
         });
       });
     new Setting(containerEl)
-      .setName('正文字号')
-      .setDesc('Blockspace 正文基础字号，范围 12–24 像素。标题会按比例缩放。')
+      .setName(t("body_font_size_7be4c74a"))
+      .setDesc(t("base_font_size_for_blockspace_content_from_12_to_33221234"))
       .addSlider((slider) => slider
         .setLimits(12, 24, 1)
         .setDynamicTooltip()
@@ -8660,8 +8613,8 @@ class BlockspaceSettingTab extends PluginSettingTab {
           for (const view of this.plugin.views) view.render();
         }));
     new Setting(containerEl)
-      .setName('正文行高')
-      .setDesc('正文行高，范围 1.2–2.2。')
+      .setName(t("body_line_height_088ef4fd"))
+      .setDesc(t("body_line_height_from_1_2_to_2_2_a0cf6cc0"))
       .addSlider((slider) => slider
         .setLimits(1.2, 2.2, 0.05)
         .setDynamicTooltip()
@@ -8672,16 +8625,16 @@ class BlockspaceSettingTab extends PluginSettingTab {
           for (const view of this.plugin.views) view.render();
         }));
     new Setting(containerEl)
-      .setName('紧凑界面密度')
-      .setDesc('缩小导航、属性和看板间距，适合小屏幕或高信息密度使用。')
+      .setName(t("compact_interface_density_16eb85dc"))
+      .setDesc(t("reduce_navigation_property_and_board_spacing_for_f5576e16"))
       .addToggle((toggle) => toggle.setValue(!!this.plugin.settings.compactMode).onChange(async (value) => {
         this.plugin.settings.compactMode = value;
         await this.plugin.saveSettings();
         for (const view of this.plugin.views) view.render();
       }));
     new Setting(containerEl)
-      .setName('打开工作台时显示页面检查器')
-      .setDesc('在 Obsidian 原生右侧栏中显示属性、大纲、统计和存储状态。')
+      .setName(t("show_page_inspector_when_opening_workspace_8112d3ce"))
+      .setDesc(t("show_properties_outline_statistics_and_storage_s_c753be90"))
       .addToggle((toggle) => toggle.setValue(!!this.plugin.settings.showInspectorOnOpen).onChange(async (value) => {
         this.plugin.settings.showInspectorOnOpen = value;
         await this.plugin.saveSettings();
@@ -8696,6 +8649,8 @@ class BlockspaceWorkspacePlugin extends Plugin {
     const interactionVersion = Number(storedSettings.interactionRefinementVersion) || 0;
     const needsVisualMigration = visualVersion < 5;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, storedSettings);
+    this.settings.language = setLanguage(this.settings.language);
+    initializeLocalizedDefinitions();
     this.settings.markdownRenderMode = MARKDOWN_RENDER_MODES[this.settings.markdownRenderMode] ? this.settings.markdownRenderMode : 'reading-only';
     if (needsVisualMigration) {
       // 0.12.2 finalizes the editorial rhythm and removes duplicated chrome.
@@ -8728,72 +8683,72 @@ class BlockspaceWorkspacePlugin extends Plugin {
 
     this.registerView(VIEW_TYPE, (leaf) => new BlockspaceView(leaf, this));
     this.registerView(INSPECTOR_VIEW_TYPE, (leaf) => new BlockspaceInspectorView(leaf, this));
-    this.addRibbonIcon('layout-dashboard', '打开 Blockspace', () => void this.activateView());
-    this.addCommand({ id: 'open-workspace', name: '打开工作台', callback: () => void this.activateView() });
-    this.addCommand({ id: 'new-page', name: '新建页面', callback: async () => {
+    this.addRibbonIcon('layout-dashboard', t("open_blockspace_d81584c7"), () => void this.activateView());
+    this.addCommand({ id: 'open-workspace', name: t("open_workspace_209ab794"), callback: () => void this.activateView() });
+    this.addCommand({ id: 'new-page', name: t("new_page_64451e31"), callback: async () => {
       const view = await this.activateView();
       if (view) await view.createPage();
     } });
-    this.addCommand({ id: 'quick-switcher', name: '快速切换页面与操作', callback: async () => {
+    this.addCommand({ id: 'quick-switcher', name: t("quick_switch_pages_and_actions_a60cb71d"), callback: async () => {
       const view = await this.activateView();
       if (view) view.openQuickSwitcher();
     } });
-    this.addCommand({ id: 'find-in-page', name: '查找当前页面文本', callback: async () => {
+    this.addCommand({ id: 'find-in-page', name: t("find_text_in_current_page_cf55deac"), callback: async () => {
       const view = await this.activateView();
       if (view) view.openFindReplace(false);
     } });
-    this.addCommand({ id: 'replace-in-page', name: '查找并替换当前页面文本', callback: async () => {
+    this.addCommand({ id: 'replace-in-page', name: t("find_and_replace_text_in_current_page_7c544e3c"), callback: async () => {
       const view = await this.activateView();
       if (view) view.openFindReplace(true);
     } });
-    this.addCommand({ id: 'open-inspector', name: '打开页面检查器', callback: () => void this.activateInspector() });
-    this.addCommand({ id: 'toggle-focus-mode', name: '切换专注模式', checkCallback: (checking) => {
+    this.addCommand({ id: 'open-inspector', name: t("open_page_inspector_50425586"), callback: () => void this.activateInspector() });
+    this.addCommand({ id: 'toggle-focus-mode', name: t("toggle_focus_mode_fcf200c4"), checkCallback: (checking) => {
       const view = this.getActiveView();
       if (!view) return false;
       if (!checking) view.toggleFocusMode();
       return true;
     } });
-    this.addCommand({ id: 'toggle-native-markdown-reading', name: '切换 Obsidian 原生 Markdown 阅读模式', checkCallback: (checking) => {
+    this.addCommand({ id: 'toggle-native-markdown-reading', name: t("toggle_obsidian_native_markdown_reading_mode_d78a92fb"), checkCallback: (checking) => {
       const view = this.getActiveView();
       if (!view || view.activeTab !== 'document' || this.settings.markdownRenderMode === 'off') return false;
       if (!checking) view.toggleReadingMode();
       return true;
     } });
-    this.addCommand({ id: 'import-active-markdown', name: '导入当前 Markdown 文件', callback: () => {
-      void this.importActiveMarkdown().catch((error) => this.reportOpenFailure('导入 Markdown', error));
+    this.addCommand({ id: 'import-active-markdown', name: t("import_active_markdown_file_5a82a6e9"), callback: () => {
+      void this.importActiveMarkdown().catch((error) => this.reportOpenFailure(t("import_markdown_fb4d8201"), error));
     } });
-    this.addCommand({ id: 'export-current-page', name: '导出当前页面为无损 Markdown', callback: async () => {
+    this.addCommand({ id: 'export-current-page', name: t("export_current_page_as_lossless_markdown_6bffbf62"), callback: async () => {
       const view = this.getActiveView();
       if (view) await view.exportCurrentPage('md');
-      else new Notice('请先打开 Blockspace 工作台');
+      else new Notice(t("open_the_blockspace_workspace_first_d1b223e3"));
     } });
-    this.addCommand({ id: 'export-current-page-word', name: '导出当前页面为 Word', callback: async () => {
+    this.addCommand({ id: 'export-current-page-word', name: t("export_current_page_as_word_c93cdc63"), callback: async () => {
       const view = this.getActiveView();
       if (view) await view.exportCurrentPage('docx');
-      else new Notice('请先打开 Blockspace 工作台');
+      else new Notice(t("open_the_blockspace_workspace_first_d1b223e3"));
     } });
-    this.addCommand({ id: 'export-current-page-pdf', name: '导出当前页面为 PDF', callback: async () => {
+    this.addCommand({ id: 'export-current-page-pdf', name: t("export_current_page_as_pdf_d112efda"), callback: async () => {
       const view = this.getActiveView();
       if (view) await view.exportCurrentPage('pdf');
-      else new Notice('请先打开 Blockspace 工作台');
+      else new Notice(t("open_the_blockspace_workspace_first_d1b223e3"));
     } });
-    this.addCommand({ id: 'undo', name: '撤销当前页面操作', checkCallback: (checking) => {
+    this.addCommand({ id: 'undo', name: t("undo_current_page_action_2d2f607f"), checkCallback: (checking) => {
       const view = this.getActiveView();
       if (!view || view.history.undo.length === 0) return false;
       if (!checking) view.undo();
       return true;
     } });
-    this.addCommand({ id: 'redo', name: '重做当前页面操作', checkCallback: (checking) => {
+    this.addCommand({ id: 'redo', name: t("redo_current_page_action_419b4476"), checkCallback: (checking) => {
       const view = this.getActiveView();
       if (!view || view.history.redo.length === 0) return false;
       if (!checking) view.redo();
       return true;
     } });
-    this.addCommand({ id: 'diagnostics', name: '打开诊断与恢复', callback: async () => {
+    this.addCommand({ id: 'diagnostics', name: t("open_diagnostics_and_recovery_7acf8511"), callback: async () => {
       try {
         await this.ensureStore();
       } catch (error) {
-        this.reportOpenFailure('打开诊断与恢复', error);
+        this.reportOpenFailure(t("open_diagnostics_and_recovery_7acf8511"), error);
         return;
       }
       new BlockspaceDiagnosticsModal(this.app, this).open();
@@ -8820,12 +8775,12 @@ class BlockspaceWorkspacePlugin extends Plugin {
       if (!(file instanceof TFile) || file.extension !== 'md') return;
       const generatedPageId = this.pageIdForGeneratedMarkdownFile(file);
       menu.addItem((item) => item
-        .setTitle('在 Blockspace 中打开')
+        .setTitle(t("open_in_blockspace_73813a07"))
         .setIcon('blocks')
         .onClick(() => void this.openMarkdownFileInBlockspace(file, leaf)));
       if (generatedPageId) {
         menu.addItem((item) => item
-          .setTitle('以原生 Markdown 打开')
+          .setTitle(t("open_as_native_markdown_405193d1"))
           .setIcon('file-text')
           .onClick(() => void this.openGeneratedMarkdownAsNative(file, leaf)));
       }
@@ -8853,6 +8808,8 @@ class BlockspaceWorkspacePlugin extends Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings.language = setLanguage(this.settings.language);
+    initializeLocalizedDefinitions();
   }
 
   async saveSettings() {
@@ -8885,7 +8842,7 @@ class BlockspaceWorkspacePlugin extends Plugin {
         && normalizePath(block.data.path || '') === source
       ));
       if (!followsSource && !affectedResource) continue;
-      view.performMutation(followsSource ? '跟随来源笔记重命名' : '跟随附件重命名', (page) => {
+      view.performMutation(followsSource ? t("follow_source_note_rename_721f6e23") : t("follow_attachment_rename_af6acf5e"), (page) => {
         if (normalizePath(page.sourcePath || '') === source) page.sourcePath = destination;
         for (const block of page.blocks) {
           if (!Core.ADVANCED_BLOCK_TYPES.has(block.type) || !block.data || block.data.sourceType !== 'vault') continue;
@@ -9067,12 +9024,12 @@ class BlockspaceWorkspacePlugin extends Plugin {
     await this.ensureStore();
     const path = this.generatedMarkdownPathForPage(pageId);
     if (!path) {
-      new Notice('请先启用“自动生成原生 Markdown”或 Markdown Bridge');
+      new Notice(t("enable_automatically_generate_native_markdown_or_c36a67ae"));
       return false;
     }
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
-      new Notice('未找到对应的生成 Markdown 文件');
+      new Notice(t("no_corresponding_generated_markdown_file_found_47de7af1"));
       return false;
     }
     return this.openGeneratedMarkdownAsNative(file, leaf);
@@ -9114,9 +9071,9 @@ class BlockspaceWorkspacePlugin extends Plugin {
     const label = SAVE_STATE_LABELS[state];
     item.hidden = false;
     item.textContent = `Blockspace · ${label}`;
-    item.setAttribute('aria-label', `Blockspace 保存状态：${label}`);
+    item.setAttribute('aria-label', t("blockspace_save_status_0_40bd8eb9", [label]));
     item.setAttribute('title', state === 'error' || state === 'conflict'
-      ? `${label}；请打开 Blockspace 诊断与恢复`
+      ? t("0_open_blockspace_diagnostics_and_recovery_07e3e669", [label])
       : label);
     for (const candidate of Object.keys(SAVE_STATE_LABELS)) {
       item.classList.toggle(`is-${candidate}`, candidate === state);
@@ -9140,9 +9097,9 @@ class BlockspaceWorkspacePlugin extends Plugin {
   // unhandled rejection and the user simply sees nothing happen. That is much
   // more likely on mobile, where the file layer is slower and more fragile.
   reportOpenFailure(action, error) {
-    console.error(`Blockspace: ${action}失败`, error);
+    console.error(t("blockspace_0_failed_75427abd", [action]), error);
     const detail = error && error.message ? error.message : String(error);
-    new Notice(`Blockspace ${action}失败：${detail}`, 10000);
+    new Notice(t("blockspace_0_failed_1_cb0821de", [action, detail]), 10000);
   }
 
   async activateInspector() {
@@ -9152,14 +9109,14 @@ class BlockspaceWorkspacePlugin extends Plugin {
       if (!leaf) {
         if (typeof this.app.workspace.getRightLeaf === 'function') leaf = this.app.workspace.getRightLeaf(false);
         if (!leaf) leaf = this.app.workspace.getLeaf('tab');
-        if (!leaf) throw new Error('当前布局没有可用的面板');
+        if (!leaf) throw new Error(t("no_pane_available_in_the_current_layout_d01e51e1"));
         await leaf.setViewState({ type: INSPECTOR_VIEW_TYPE, active: true });
       }
       await this.app.workspace.revealLeaf(leaf);
       this.notifyContextChanged();
       return leaf.view instanceof BlockspaceInspectorView ? leaf.view : null;
     } catch (error) {
-      this.reportOpenFailure('打开页面检查器', error);
+      this.reportOpenFailure(t("open_page_inspector_50425586"), error);
       return null;
     }
   }
@@ -9170,7 +9127,7 @@ class BlockspaceWorkspacePlugin extends Plugin {
       let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
       if (!leaf) {
         leaf = this.app.workspace.getLeaf(true);
-        if (!leaf) throw new Error('当前布局没有可用的标签页');
+        if (!leaf) throw new Error(t("no_tab_available_in_the_current_layout_feac5529"));
         await leaf.setViewState({ type: VIEW_TYPE, active: true });
       }
       await this.app.workspace.revealLeaf(leaf);
@@ -9178,7 +9135,7 @@ class BlockspaceWorkspacePlugin extends Plugin {
       if (view && this.settings.showInspectorOnOpen) void this.activateInspector();
       return view;
     } catch (error) {
-      this.reportOpenFailure('打开工作台', error);
+      this.reportOpenFailure(t("open_workspace_209ab794"), error);
       return null;
     }
   }
@@ -9239,7 +9196,7 @@ class BlockspaceWorkspacePlugin extends Plugin {
       await this.app.vault.adapter.writeBinary(path, buffer);
       return this.app.vault.getAbstractFileByPath(path);
     }
-    throw new Error('当前 Obsidian 版本不支持写入二进制导出文件');
+    throw new Error(t("this_obsidian_version_cannot_write_binary_export_5189b19a"));
   }
 
   async collectExportAssets(page) {
@@ -9289,7 +9246,7 @@ class BlockspaceWorkspacePlugin extends Plugin {
     const normalized = Core.normalizePage(page);
     const targetFormat = ['md', 'docx', 'pdf'].includes(format) ? format : 'md';
     const label = targetFormat === 'docx' ? 'Word' : targetFormat.toUpperCase();
-    const workingNotice = targetFormat === 'md' ? null : new Notice(`正在生成 ${label}…`, 0);
+    const workingNotice = targetFormat === 'md' ? null : new Notice(t("generating_0_0a499094", [label]), 0);
     try {
       let file = null;
       let sidecarPath = null;
@@ -9313,14 +9270,14 @@ class BlockspaceWorkspacePlugin extends Plugin {
       }
       if (workingNotice && typeof workingNotice.hide === 'function') workingNotice.hide();
       new Notice(targetFormat === 'md'
-        ? `已无损导出 Markdown：${path}（正文不含恢复载荷）`
-        : `已无损导出 ${label}：${path}`);
+        ? t("exported_lossless_markdown_0_body_contains_no_re_84dbf0a3", [path])
+        : t("exported_lossless_0_1_f16d1d9e", [label, path]));
       await this.openExportedFile(file, targetFormat);
       return { path, file, format: targetFormat, sidecarPath };
     } catch (error) {
       if (workingNotice && typeof workingNotice.hide === 'function') workingNotice.hide();
       console.error(`Blockspace: ${targetFormat} export failed`, error);
-      new Notice(`${label} 导出失败：${error && error.message ? error.message : '未知错误'}`);
+      new Notice(t("0_export_failed_1_9260d094", [label, error && error.message ? error.message : t("unknown_error_13a46616")]));
       return null;
     }
   }
@@ -9336,7 +9293,7 @@ class BlockspaceWorkspacePlugin extends Plugin {
 
   async importMarkdownFile(file) {
     if (!(file instanceof TFile) || file.extension !== 'md') {
-      new Notice('请选择 Markdown 文件');
+      new Notice(t("select_a_markdown_file_ad70ca49"));
       return null;
     }
     const text = await this.app.vault.cachedRead(file);
@@ -9346,11 +9303,11 @@ class BlockspaceWorkspacePlugin extends Plugin {
     if (losslessPage) {
       const existing = this.store.workspace.pages.some((page) => page.id === losslessPage.id);
       const imported = existing
-        ? await this.store.restorePageAsCopy(losslessPage, '（无损导入）')
+        ? await this.store.restorePageAsCopy(losslessPage, t("lossless_import_63ebb735"))
         : await this.store.savePage(losslessPage, { expectedRevision: null, createSnapshot: false });
       const view = await this.activateView();
       if (view) await view.openPage(imported.id);
-      new Notice(`已无损导入 ${file.basename}`);
+      new Notice(t("losslessly_imported_0_d0b8ccd7", [file.basename]));
       return imported;
     }
     const markdownBody = Exporters.stripLosslessPayload(text).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
@@ -9378,9 +9335,217 @@ class BlockspaceWorkspacePlugin extends Plugin {
     await this.store.savePage(page, { expectedRevision: page.revision - 1 });
     const view = await this.activateView();
     if (view) await view.openPage(page.id);
-    new Notice(`已导入 ${file.basename}`);
+    new Notice(t("imported_0_a8bb9a7a", [file.basename]));
     return page;
   }
 }
+
+function initializeLocalizedDefinitions() {
+SLASH_COMMANDS = [
+  { type: 'paragraph', label: t("text_dd818618"), description: t("plain_text_block_87bd1ba9"), icon: 'pilcrow', category: t("basic_89e5e14c"), aliases: ['text', 'p', '正文'] },
+  { type: 'heading-1', label: t("heading_1_a75d25cd"), description: t("page_heading_c69654f8"), icon: 'heading-1', category: t("basic_89e5e14c"), aliases: ['h1', '标题1'] },
+  { type: 'heading-2', label: t("heading_2_d69947f3"), description: t("section_heading_b2604398"), icon: 'heading-2', category: t("basic_89e5e14c"), aliases: ['h2', '标题2'] },
+  { type: 'heading-3', label: t("heading_3_7d96cb13"), description: t("subsection_heading_16b283f7"), icon: 'heading-3', category: t("basic_89e5e14c"), aliases: ['h3', '标题3'] },
+  { type: 'todo', label: t("to_do_5e415ae2"), description: t("checkable_task_37462bd6"), icon: 'square-check-big', category: t("lists_aedd6814"), aliases: ['todo', 'task', '待办'] },
+  { type: 'bulleted-list', label: t("bulleted_list_9ee5773e"), description: t("list_with_bullet_points_8eefc2d9"), icon: 'list', category: t("lists_aedd6814"), aliases: ['ul', 'bullet', '列表'] },
+  { type: 'numbered-list', label: t("numbered_list_5d0bb271"), description: t("list_with_numbers_9f63b8f1"), icon: 'list-ordered', category: t("lists_aedd6814"), aliases: ['ol', 'number', '编号'] },
+  { type: 'quote', label: t("quote_e0ec651f"), description: t("quoted_content_dad60ee6"), icon: 'quote', category: t("emphasis_d5ae79ed"), aliases: ['quote', '引用'] },
+  { type: 'callout', label: t("callout_acc61f75"), description: t("highlighted_container_that_can_hold_child_blocks_122f581e"), icon: 'message-square-text', category: t("emphasis_d5ae79ed"), aliases: ['callout', 'note', '提示'] },
+  { type: 'toggle', label: t("toggle_b649ae5a"), description: t("expand_or_collapse_nested_content_9a8da16f"), icon: 'chevron-right-square', category: t("advanced_d6e61888"), aliases: ['toggle', '折叠', '展开'] },
+  { type: 'table-of-contents', label: t("table_of_contents_52daa71e"), description: t("generate_a_table_of_contents_from_page_headings_3a34a4e8"), icon: 'list-tree', category: t("advanced_d6e61888"), aliases: ['toc', '目录', '大纲'] },
+  { type: 'image', label: t("image_d24c10d3"), description: t("paste_upload_or_reference_an_image_in_your_vault_481f6e0a"), icon: 'image', category: t("media_fa33e100"), aliases: ['image', 'img', '图片', '照片'] },
+  { type: 'video', label: t("video_c20f7618"), description: t("upload_or_reference_a_video_file_68e91107"), icon: 'video', category: t("media_fa33e100"), aliases: ['video', '视频'] },
+  { type: 'audio', label: t("audio_296c632e"), description: t("upload_or_reference_an_audio_file_8f9b5fbc"), icon: 'audio-lines', category: t("media_fa33e100"), aliases: ['audio', '音频'] },
+  { type: 'attachment', label: t("attachment_c7225dbf"), description: t("upload_a_pdf_or_another_vault_file_59493600"), icon: 'paperclip', category: t("media_fa33e100"), aliases: ['file', 'attachment', '附件', '文件', 'pdf'] },
+  { type: 'bookmark', label: t("bookmark_94b8975c"), description: t("create_an_editable_link_preview_card_725a0203"), icon: 'bookmark', category: t("media_fa33e100"), aliases: ['bookmark', 'url', 'link', '书签', '链接卡片'] },
+  { type: 'table', label: t("table_22d9e7c5"), description: t("edit_a_table_and_export_it_as_a_native_markdown__df3fee6e"), icon: 'table-2', category: t("advanced_d6e61888"), aliases: ['table', '表格'] },
+  { type: 'columns', label: t("columns_e02531a7"), description: t("edit_in_two_or_three_columns_that_stack_in_narro_ffdcb7d6"), icon: 'columns-3', category: t("advanced_d6e61888"), aliases: ['columns', 'column', '分栏', '双栏', '三栏'] },
+  { type: 'markdown', label: t("native_markdown_5e2ab2e7"), description: t("display_raw_markdown_with_the_obsidian_renderer_b491eff5"), icon: 'file-code-2', category: t("advanced_d6e61888"), aliases: ['markdown', 'md', '原生 markdown'] },
+  { type: 'code', label: t("code_block_ddb4a628"), description: t("monospaced_code_5071da45"), icon: 'code-2', category: t("advanced_d6e61888"), aliases: ['code', '代码'] },
+  { type: 'divider', label: t("divider_c64dd5eb"), description: t("separate_content_ccd83f62"), icon: 'minus', category: t("advanced_d6e61888"), aliases: ['divider', 'hr', '分割线'] },
+];
+STATUS_LABELS = { todo: t("not_started_5b715411"), doing: t("in_progress_dc9591e5"), done: t("done_f28461bb") };
+PRIORITY_LABELS = { low: t("low_aa9e366f"), medium: t("medium_a567bdaa"), high: t("high_b1c27820") };
+STYLE_COLOR_LABELS = {
+  default: t("default_844b8cc8"), gray: t("gray_051e67d9"), brown: t("brown_d4969ce9"), orange: t("orange_aa1e899d"), yellow: t("yellow_d451c07d"),
+  green: t("green_30c83dc2"), blue: t("blue_67035e6b"), purple: t("purple_2ed9c6fa"), pink: t("pink_dbd379b3"), red: t("red_789f61db"),
+};
+FONT_FAMILIES = {
+  theme: t("follow_obsidian_d6707bdd"), sans: t("sans_serif_26ae4ba2"), serif: t("serif_8059e059"), monospace: t("monospace_117fef96"),
+};
+VISUAL_STYLES = {
+  notion: t("notion_style_a28c0b0d"),
+  siyuan: t("siyuan_style_cb31b1ca"),
+  native: t("obsidian_native_01a34603"),
+};
+PAGE_DENSITIES = {
+  compact: t("compact_5d63d587"),
+  standard: t("standard_6bea77ac"),
+  immersive: t("immersive_566c0536"),
+};
+CUSTOM_PROPERTY_TYPE_DETAILS = {
+  text: { label: t("text_dd818618"), icon: 'text' },
+  list: { label: t("lists_aedd6814"), icon: 'list' },
+  number: { label: t("number_c16ec927"), icon: 'hash' },
+  checkbox: { label: t("checkbox_48b50759"), icon: 'square-check' },
+  date: { label: t("date_70d0c1b3"), icon: 'calendar-days' },
+  datetime: { label: t("date_and_time_917e4afc"), icon: 'calendar-clock' },
+};
+MARKDOWN_RENDER_MODES = {
+  'reading-only': t("native_reading_mode_only_c1a933b4"),
+  'native-blocks': t("render_unfocused_blocks_natively_a0e79509"),
+  off: t("disable_native_markdown_rendering_0b3ecfb7"),
+};
+MARKDOWN_BLOCK_ID_MODES = {
+  none: t("none_reading_first_762ef3da"),
+  referenced: t("referenced_blocks_only_recommended_7b61d210"),
+  all: t("all_addressable_blocks_compatibility_82557a0b"),
+};
+SAVE_STATE_LABELS = {
+  saved: t("saved_1bd91a7d"),
+  dirty: t("waiting_to_save_58b2e85e"),
+  saving: t("saving_6bdb4435"),
+  conflict: t("save_conflict_1c9adce4"),
+  error: t("save_failed_6309a3bb"),
+};
+ADVANCED_BLOCK_LABELS = {
+  image: { label: t("image_d24c10d3"), icon: 'image' },
+  video: { label: t("video_c20f7618"), icon: 'video' },
+  audio: { label: t("audio_296c632e"), icon: 'audio-lines' },
+  attachment: { label: t("attachment_c7225dbf"), icon: 'paperclip' },
+  bookmark: { label: t("bookmark_94b8975c"), icon: 'bookmark' },
+  table: { label: t("table_22d9e7c5"), icon: 'table-2' },
+};
+  const searchTerms = {
+  "paragraph": [
+    "文本",
+    "普通文本块",
+    "Text",
+    "Plain text block"
+  ],
+  "heading-1": [
+    "一级标题",
+    "页面大标题",
+    "Heading 1",
+    "Page heading"
+  ],
+  "heading-2": [
+    "二级标题",
+    "章节标题",
+    "Heading 2",
+    "Section heading"
+  ],
+  "heading-3": [
+    "三级标题",
+    "小节标题",
+    "Heading 3",
+    "Subsection heading"
+  ],
+  "todo": [
+    "待办事项",
+    "可勾选任务",
+    "To-do",
+    "Checkable task"
+  ],
+  "bulleted-list": [
+    "无序列表",
+    "项目符号列表",
+    "Bulleted list",
+    "List with bullet points"
+  ],
+  "numbered-list": [
+    "有序列表",
+    "编号列表",
+    "Numbered list",
+    "List with numbers"
+  ],
+  "quote": [
+    "引用",
+    "引用内容",
+    "Quote",
+    "Quoted content"
+  ],
+  "callout": [
+    "提示块",
+    "可容纳子块的强调容器",
+    "Callout",
+    "Highlighted container that can hold child blocks"
+  ],
+  "toggle": [
+    "折叠块",
+    "可展开和收起子内容",
+    "Toggle",
+    "Expand or collapse nested content"
+  ],
+  "table-of-contents": [
+    "目录",
+    "根据标题块自动生成页面目录",
+    "Table of contents",
+    "Generate a table of contents from page headings"
+  ],
+  "image": [
+    "图片",
+    "粘贴、上传或引用 Vault 图片",
+    "Image",
+    "Paste, upload, or reference an image in your vault"
+  ],
+  "video": [
+    "视频",
+    "上传或引用视频文件",
+    "Video",
+    "Upload or reference a video file"
+  ],
+  "audio": [
+    "音频",
+    "上传或引用音频文件",
+    "Audio",
+    "Upload or reference an audio file"
+  ],
+  "attachment": [
+    "附件",
+    "上传 PDF 或其他 Vault 文件",
+    "Attachment",
+    "Upload a PDF or another vault file"
+  ],
+  "bookmark": [
+    "书签",
+    "创建可编辑的链接预览卡片",
+    "Bookmark",
+    "Create an editable link preview card"
+  ],
+  "table": [
+    "表格",
+    "可直接编辑并导出为原生 Markdown 表格",
+    "Table",
+    "Edit a table and export it as a native Markdown table"
+  ],
+  "columns": [
+    "分栏",
+    "两栏或三栏并排编辑，窄窗口自动上下排列",
+    "Columns",
+    "Edit in two or three columns that stack in narrow windows"
+  ],
+  "markdown": [
+    "原生 Markdown",
+    "使用 Obsidian 渲染器显示原始 Markdown",
+    "Native Markdown",
+    "Display raw Markdown with the Obsidian renderer"
+  ],
+  "code": [
+    "代码块",
+    "等宽代码内容",
+    "Code block",
+    "Monospaced code"
+  ],
+  "divider": [
+    "分隔线",
+    "分隔内容",
+    "Divider",
+    "Separate content"
+  ]
+};
+  for (const command of SLASH_COMMANDS) command.searchTerms = searchTerms[command.type];
+}
+initializeLocalizedDefinitions();
 
 module.exports = BlockspaceWorkspacePlugin;

@@ -1,5 +1,7 @@
 'use strict';
 
+const { t } = require('./i18n.cjs');
+
 const DATA_VERSION = 8;
 const PAGE_STATUSES = ['todo', 'doing', 'done'];
 const PAGE_PRIORITIES = ['low', 'medium', 'high'];
@@ -177,15 +179,15 @@ function normalizeTableData(value) {
     const column = entry && typeof entry === 'object' ? entry : {};
     return {
       id: typeof column.id === 'string' && column.id ? column.id : randomId('column'),
-      name: String(column.name ?? column.text ?? `列 ${index + 1}`).slice(0, 500),
+      name: String(column.name ?? column.text ?? t("column_0_94ab35a6", [index + 1])).slice(0, 500),
       align: TABLE_ALIGNS.has(column.align) ? column.align : 'left',
       width: Math.max(0, Math.min(1600, Math.floor(Number(column.width) || 0))),
     };
   });
   if (!columns.length) {
     columns.push(
-      { id: randomId('column'), name: '列 1', align: 'left', width: 0 },
-      { id: randomId('column'), name: '列 2', align: 'left', width: 0 },
+      { id: randomId('column'), name: t("column_1_7e61e721"), align: 'left', width: 0 },
+      { id: randomId('column'), name: t("column_2_42016d21"), align: 'left', width: 0 },
     );
   }
   const columnIds = new Set(columns.map((column) => column.id));
@@ -675,7 +677,7 @@ function normalizePage(input) {
     version: DATA_VERSION,
     formatVersion: DATA_VERSION,
     id: typeof source.id === 'string' && source.id ? source.id : randomId('page'),
-    title: typeof source.title === 'string' && source.title.trim() ? source.title.trim() : 'Untitled',
+    title: typeof source.title === 'string' && source.title.trim() ? source.title.trim() : t('untitled'),
     // An empty icon is a real choice ("no icon"), so it must survive normalization.
     icon: typeof source.icon === 'string' ? source.icon.slice(0, 8) : '📄',
     // Decoration is opt-in: a page never gains a cover it did not ask for.
@@ -700,12 +702,12 @@ function normalizePage(input) {
   };
 }
 
-function createDefaultPage(title = '欢迎使用 Blockspace') {
+function createDefaultPage(title = t("welcome_to_blockspace_69dd1875")) {
   const timestamp = nowIso();
-  const heading = createBlock('heading-1', '独立的块编辑工作台');
-  const paragraph = createBlock('paragraph', '这里的内容保存为结构化块数据，而不是 Markdown 文件。');
-  const callout = createBlock('callout', '输入 / 可以切换块类型；拖动左侧手柄可以调整顺序。');
-  const todo = createBlock('todo', '创建你的第一个 Blockspace 页面');
+  const heading = createBlock('heading-1', t("your_structured_block_workspace_f7a1e27a"));
+  const paragraph = createBlock('paragraph', t("content_here_is_stored_as_structured_block_data__ad73ec39"));
+  const callout = createBlock('callout', t("type_to_change_block_types_drag_the_handle_on_th_c8b07a3f"));
+  const todo = createBlock('todo', t("create_your_first_blockspace_page_42a625f9"));
   return normalizePage({
     version: DATA_VERSION,
     formatVersion: DATA_VERSION,
@@ -1857,7 +1859,7 @@ function normalizeWorkspace(input) {
   const pages = Array.isArray(source.pages)
     ? source.pages.filter((page) => page && typeof page.id === 'string').map((page) => ({
       id: page.id,
-      title: typeof page.title === 'string' && page.title ? page.title : 'Untitled',
+      title: typeof page.title === 'string' && page.title ? page.title : t('untitled'),
       icon: typeof page.icon === 'string' && page.icon ? page.icon : '📄',
       parentId: typeof page.parentId === 'string' && page.parentId ? page.parentId : null,
       status: PAGE_STATUSES.includes(page.status) ? page.status : 'todo',
@@ -1967,7 +1969,7 @@ function createHistory(limit = 150) {
 function createTransaction(label, before, after, metadata = {}) {
   return {
     id: randomId('tx'),
-    label: String(label || '编辑'),
+    label: String(label || t("edit_05183656")),
     before: clonePage(before),
     after: clonePage(after),
     selectionBefore: metadata.selectionBefore || null,
@@ -2000,67 +2002,67 @@ function redoHistory(history) {
 
 function validatePage(input) {
   const issues = [];
-  if (!input || typeof input !== 'object') return ['页面不是有效对象'];
-  if (typeof input.id !== 'string' || !input.id) issues.push('页面缺少有效 ID');
-  if (!Array.isArray(input.blocks)) issues.push('页面 blocks 不是数组');
+  if (!input || typeof input !== 'object') return [t("page_is_not_a_valid_object_e86b855a")];
+  if (typeof input.id !== 'string' || !input.id) issues.push(t("page_has_no_valid_id_3ed159a3"));
+  if (!Array.isArray(input.blocks)) issues.push(t("page_blocks_must_be_an_array_30ffa040"));
   const treeFormat = Number(input.formatVersion || input.version || 0) >= 4;
-  if (treeFormat && !Array.isArray(input.rootBlockIds)) issues.push('页面缺少 rootBlockIds');
+  if (treeFormat && !Array.isArray(input.rootBlockIds)) issues.push(t("page_is_missing_rootblockids_d814ffca"));
   const ids = new Set();
   const rawBlocks = Array.isArray(input.blocks) ? input.blocks : [];
   for (const [index, raw] of rawBlocks.entries()) {
-    if (!raw || typeof raw !== 'object') { issues.push(`第 ${index + 1} 个块不是有效对象`); continue; }
-    if (typeof raw.id !== 'string' || !raw.id) issues.push(`第 ${index + 1} 个块缺少 ID`);
-    else if (ids.has(raw.id)) issues.push(`存在重复块 ID：${raw.id}`);
+    if (!raw || typeof raw !== 'object') { issues.push(t("block_0_is_not_a_valid_object_bb143629", [index + 1])); continue; }
+    if (typeof raw.id !== 'string' || !raw.id) issues.push(t("block_0_has_no_id_ca67c292", [index + 1]));
+    else if (ids.has(raw.id)) issues.push(t("duplicate_block_id_0_9448b50d", [raw.id]));
     else ids.add(raw.id);
-    if (!BLOCK_TYPES.has(raw.type)) issues.push(`块 ${raw.id || index + 1} 类型无效：${raw.type}`);
+    if (!BLOCK_TYPES.has(raw.type)) issues.push(t("block_0_has_an_invalid_type_1_1605d5bd", [raw.id || index + 1, raw.type]));
     const textLength = String(raw.text ?? '').length;
-    for (const mark of Array.isArray(raw.marks) ? raw.marks : []) if (!normalizeInlineMark(mark, textLength)) issues.push(`块 ${raw.id || index + 1} 存在无效文字格式`);
+    for (const mark of Array.isArray(raw.marks) ? raw.marks : []) if (!normalizeInlineMark(mark, textLength)) issues.push(t("block_0_has_invalid_text_formatting_03af4a5f", [raw.id || index + 1]));
     const appearance = raw.appearance && typeof raw.appearance === 'object' ? raw.appearance : {};
-    if (appearance.textColor && !SEMANTIC_COLORS.has(appearance.textColor)) issues.push(`块 ${raw.id || index + 1} 文字颜色无效`);
-    if (appearance.background && !SEMANTIC_COLORS.has(appearance.background)) issues.push(`块 ${raw.id || index + 1} 背景颜色无效`);
-    if (appearance.align && !BLOCK_ALIGNS.has(appearance.align)) issues.push(`块 ${raw.id || index + 1} 对齐方式无效`);
-    if (raw.parentId && typeof raw.parentId !== 'string') issues.push(`块 ${raw.id || index + 1} parentId 无效`);
-    if (raw.children && !Array.isArray(raw.children)) issues.push(`块 ${raw.id || index + 1} children 无效`);
+    if (appearance.textColor && !SEMANTIC_COLORS.has(appearance.textColor)) issues.push(t("block_0_has_an_invalid_text_color_ac01cd00", [raw.id || index + 1]));
+    if (appearance.background && !SEMANTIC_COLORS.has(appearance.background)) issues.push(t("block_0_has_an_invalid_background_color_3e711074", [raw.id || index + 1]));
+    if (appearance.align && !BLOCK_ALIGNS.has(appearance.align)) issues.push(t("block_0_has_invalid_alignment_657ed653", [raw.id || index + 1]));
+    if (raw.parentId && typeof raw.parentId !== 'string') issues.push(t("block_0_has_an_invalid_parentid_0c30d217", [raw.id || index + 1]));
+    if (raw.children && !Array.isArray(raw.children)) issues.push(t("block_0_has_invalid_children_ff896413", [raw.id || index + 1]));
   }
   const rawById = new Map(rawBlocks.filter((block) => block && typeof block.id === 'string').map((block) => [block.id, block]));
   const rawRoots = Array.isArray(input.rootBlockIds) ? input.rootBlockIds : [];
   const rootIds = new Set();
   for (const rootId of rawRoots) {
     if (typeof rootId !== 'string' || !rootId) {
-      issues.push('rootBlockIds 包含无效 ID');
+      issues.push(t("rootblockids_contains_an_invalid_id_b5b47596"));
       continue;
     }
-    if (rootIds.has(rootId)) issues.push(`rootBlockIds 重复包含块：${rootId}`);
+    if (rootIds.has(rootId)) issues.push(t("rootblockids_contains_a_duplicate_block_0_b0813ba0", [rootId]));
     rootIds.add(rootId);
-    if (!rawById.has(rootId)) issues.push(`rootBlockIds 指向不存在的块：${rootId}`);
+    if (!rawById.has(rootId)) issues.push(t("rootblockids_points_to_a_missing_block_0_6f25588e", [rootId]));
   }
   const childOwners = new Map();
   for (const raw of rawBlocks) {
     if (!raw || !raw.id) continue;
-    if (raw.parentId && !rawById.has(raw.parentId)) issues.push(`块 ${raw.id} 指向不存在的父块：${raw.parentId}`);
+    if (raw.parentId && !rawById.has(raw.parentId)) issues.push(t("block_0_points_to_a_missing_parent_1_d73ef465", [raw.id, raw.parentId]));
     if (treeFormat) {
-      if (raw.parentId && rootIds.has(raw.id)) issues.push(`块 ${raw.id} 同时是根块和子块`);
-      if (!raw.parentId && !rootIds.has(raw.id)) issues.push(`根块 ${raw.id} 未出现在 rootBlockIds`);
+      if (raw.parentId && rootIds.has(raw.id)) issues.push(t("block_0_is_both_a_root_and_a_child_d713a0d5", [raw.id]));
+      if (!raw.parentId && !rootIds.has(raw.id)) issues.push(t("root_block_0_is_missing_from_rootblockids_c2318ab7", [raw.id]));
       if (raw.parentId) {
         const parent = rawById.get(raw.parentId);
         if (parent && !(Array.isArray(parent.children) ? parent.children : []).includes(raw.id)) {
-          issues.push(`块 ${raw.id} 的父块 ${raw.parentId} 未反向包含它`);
+          issues.push(t("parent_1_does_not_list_block_0_as_a_child_586f6b98", [raw.id, raw.parentId]));
         }
       }
     }
     const childIds = Array.isArray(raw.children) ? raw.children : [];
     const childSeen = new Set();
     for (const childId of childIds) {
-      if (childId === raw.id) issues.push(`块 ${raw.id} 不能包含自身`);
-      else if (!rawById.has(childId)) issues.push(`块 ${raw.id} 包含不存在的子块：${childId}`);
+      if (childId === raw.id) issues.push(t("block_0_cannot_contain_itself_5edbcdcb", [raw.id]));
+      else if (!rawById.has(childId)) issues.push(t("block_0_contains_a_missing_child_1_127397b4", [raw.id, childId]));
       else {
-        if (childSeen.has(childId)) issues.push(`块 ${raw.id} 重复包含子块：${childId}`);
+        if (childSeen.has(childId)) issues.push(t("block_0_contains_a_duplicate_child_1_bc2ed1c0", [raw.id, childId]));
         const owner = childOwners.get(childId);
-        if (owner && owner !== raw.id) issues.push(`块 ${childId} 同时被多个父块包含：${owner}、${raw.id}`);
+        if (owner && owner !== raw.id) issues.push(t("block_0_has_multiple_parents_1_2_d3c42806", [childId, owner, raw.id]));
         else childOwners.set(childId, raw.id);
         const child = rawById.get(childId);
         if (treeFormat && child && child.parentId !== raw.id) {
-          issues.push(`父块 ${raw.id} 包含块 ${childId}，但子块 parentId 不一致`);
+          issues.push(t("parent_0_contains_block_1_but_the_child_s_parent_3c680d85", [raw.id, childId]));
         }
       }
       childSeen.add(childId);
@@ -2082,13 +2084,13 @@ function validatePage(input) {
   };
   for (const id of rawById.keys()) {
     if (detectCycle(id)) {
-      issues.push('块树存在循环引用');
+      issues.push(t("block_tree_contains_a_cycle_1cc4d0f2"));
       break;
     }
   }
   const normalized = normalizePage(input);
   const allFlattened = flattenBlocks(normalized, { includeCollapsed: true });
-  if (allFlattened.length !== normalized.blocks.length) issues.push('块树存在无法访问的孤立结构');
+  if (allFlattened.length !== normalized.blocks.length) issues.push(t("block_tree_contains_unreachable_blocks_06cb3362"));
   return Array.from(new Set(issues));
 }
 
@@ -2989,7 +2991,7 @@ function advancedBlockToMarkdown(block) {
     return [header, separator, ...rows].join('\n');
   }
   if (block.type === 'bookmark') {
-    const label = String(data.title || block.text || data.url || '链接').replace(/\\/g, '\\\\').replace(/\]/g, '\\]');
+    const label = String(data.title || block.text || data.url || t("link_305378dd")).replace(/\\/g, '\\\\').replace(/\]/g, '\\]');
     return data.url ? `[${label}](${data.url})` : label;
   }
   const source = data.sourceType === 'remote' ? data.url : data.path;
@@ -3082,7 +3084,7 @@ function blocksToMarkdown(blocksOrPage, title = '', options = {}) {
       case 'quote': emit(`${indent}> ${text}`); if (anchor) emit('', `${indent}^${anchor}`); break;
       case 'callout': emit(`${indent}> [!note] ${text}`); if (anchor) emit('', `${indent}^${anchor}`); break;
       case 'toggle':
-        if (nativeObsidian) emit(`${indent}> [!note]${block.collapsed ? '-' : '+'} ${text || '详情'}`);
+        if (nativeObsidian) emit(`${indent}> [!note]${block.collapsed ? '-' : '+'} ${text || t("details_979a3329")}`);
         else emit(`${indent}<details${block.collapsed ? '' : ' open'}>`, `${indent}<summary>${text}</summary>`);
         break;
       case 'code': {
